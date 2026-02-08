@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Hardhat
+artifacts/
+cache/
+typechain-types/
+coverage/
+coverage.json
+
+# Environment
+.env
+
+# Data (runtime state, logs)
+data/*.json
+scraper/state/seen-wallets.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.log

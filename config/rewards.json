@@ -1,0 +1,7 @@
+{
+  "defaultReward": "10",
+  "decimals": 18,
+  "dryRun": false,
+  "maxMintsPerCycle": 50,
+  "cooldownMinutes": 5
+}
