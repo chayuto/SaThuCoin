@@ -1,0 +1,39 @@
+{
+  "name": "sathucoin",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "test": "npx hardhat test",
+    "test:gas": "REPORT_GAS=true npx hardhat test",
+    "deploy:testnet": "npx hardhat run scripts/deploy.js --network base-sepolia",
+    "deploy:mainnet": "npx hardhat run scripts/deploy.js --network base-mainnet",
+    "verify:testnet": "npx hardhat run scripts/verify.js --network base-sepolia",
+    "verify:mainnet": "npx hardhat run scripts/verify.js --network base-mainnet",
+    "clean": "npx hardhat clean"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chayuto/SaThuCoin.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/chayuto/SaThuCoin/issues"
+  },
+  "homepage": "https://github.com/chayuto/SaThuCoin#readme",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.28.4"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.4.0",
+    "axios": "^1.13.4",
+    "cheerio": "^1.2.0",
+    "dotenv": "^17.2.4",
+    "node-cron": "^4.2.1"
+  }
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "example-charity",
+    "name": "Example Charity Foundation",
+    "url": "https://example.com/donors",
+    "type": "html",
+    "selector": ".donor-wallet",
+    "attribute": "text",
+    "rewardAmount": "50",
+    "enabled": false,
+    "notes": "EXAMPLE — replace with a real source. Disabled by default."
+  },
+  {
+    "id": "example-api",
+    "name": "Example NGO API",
+    "url": "https://api.example.com/v1/public-donors",
+    "type": "api",
+    "walletField": "data.donors[].walletAddress",
+    "rewardAmount": "100",
+    "enabled": false,
+    "notes": "EXAMPLE — replace with a real source. Disabled by default."
+  }
+]
