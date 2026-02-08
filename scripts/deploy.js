@@ -62,7 +62,7 @@ async function main() {
     txHash: deployTx.hash,
     timestamp: new Date().toISOString(),
     blockNumber: deployTx.blockNumber,
-    solidity: "0.8.24",
+    solidity: "0.8.26",
     optimizer: { enabled: true, runs: 200 },
   };
 
