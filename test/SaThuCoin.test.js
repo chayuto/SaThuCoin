@@ -1,21 +1,37 @@
 const { loadFixture } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { expect } = require("chai");
-const { ethers } = require("hardhat");
+const { ethers, network } = require("hardhat");
 
 describe("SaThuCoin", function () {
 
-  // Fixture: deploys a fresh contract for each test
-  async function deployFixture() {
-    const [owner, alice, bob, charlie] = await ethers.getSigners();
-    const SaThuCoin = await ethers.getContractFactory("SaThuCoin");
-    const token = await SaThuCoin.deploy();
-    await token.waitForDeployment();
-    return { token, owner, alice, bob, charlie };
-  }
+  // Role constants matching the contract
+  const MINTER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("MINTER_ROLE"));
+  const PAUSER_ROLE = ethers.keccak256(ethers.toUtf8Bytes("PAUSER_ROLE"));
+  const DEFAULT_ADMIN_ROLE = ethers.ZeroHash;
 
   // Constants matching the contract
   const MAX_MINT_PER_TX = ethers.parseEther("10000");
   const SUPPLY_CAP = ethers.parseEther("1000000000"); // 1 billion
+
+  // Fixture: deploys a fresh contract for each test
+  // admin = owner (gets DEFAULT_ADMIN_ROLE + PAUSER_ROLE)
+  // minter = separate account (gets MINTER_ROLE)
+  async function deployFixture() {
+    const [admin, minter, alice, bob, charlie] = await ethers.getSigners();
+    const SaThuCoin = await ethers.getContractFactory("SaThuCoin");
+    const token = await SaThuCoin.deploy(admin.address, minter.address);
+    await token.waitForDeployment();
+    return { token, admin, minter, alice, bob, charlie };
+  }
+
+  // Alternative fixture: admin is also the minter (simpler for some tests)
+  async function deploySingleRoleFixture() {
+    const [admin, alice, bob, charlie] = await ethers.getSigners();
+    const SaThuCoin = await ethers.getContractFactory("SaThuCoin");
+    const token = await SaThuCoin.deploy(admin.address, admin.address);
+    await token.waitForDeployment();
+    return { token, admin, alice, bob, charlie };
+  }
 
   // ──────────────────────────────────────────
   // DEPLOYMENT
@@ -43,14 +59,35 @@ describe("SaThuCoin", function () {
       expect(await token.totalSupply()).to.equal(0n);
     });
 
-    it("should set deployer as owner", async function () {
-      const { token, owner } = await loadFixture(deployFixture);
-      expect(await token.owner()).to.equal(owner.address);
+    it("should grant DEFAULT_ADMIN_ROLE to admin", async function () {
+      const { token, admin } = await loadFixture(deployFixture);
+      expect(await token.hasRole(DEFAULT_ADMIN_ROLE, admin.address)).to.equal(true);
     });
 
-    it("should have zero balance for owner", async function () {
-      const { token, owner } = await loadFixture(deployFixture);
-      expect(await token.balanceOf(owner.address)).to.equal(0n);
+    it("should grant MINTER_ROLE to minter", async function () {
+      const { token, minter } = await loadFixture(deployFixture);
+      expect(await token.hasRole(MINTER_ROLE, minter.address)).to.equal(true);
+    });
+
+    it("should grant PAUSER_ROLE to admin", async function () {
+      const { token, admin } = await loadFixture(deployFixture);
+      expect(await token.hasRole(PAUSER_ROLE, admin.address)).to.equal(true);
+    });
+
+    it("should not grant MINTER_ROLE to admin (when different from minter)", async function () {
+      const { token, admin } = await loadFixture(deployFixture);
+      expect(await token.hasRole(MINTER_ROLE, admin.address)).to.equal(false);
+    });
+
+    it("should not grant DEFAULT_ADMIN_ROLE to minter (when different from admin)", async function () {
+      const { token, minter } = await loadFixture(deployFixture);
+      expect(await token.hasRole(DEFAULT_ADMIN_ROLE, minter.address)).to.equal(false);
+    });
+
+    it("should have zero balance for all accounts", async function () {
+      const { token, admin, minter } = await loadFixture(deployFixture);
+      expect(await token.balanceOf(admin.address)).to.equal(0n);
+      expect(await token.balanceOf(minter.address)).to.equal(0n);
     });
 
     it("should have correct supply cap", async function () {
@@ -67,6 +104,12 @@ describe("SaThuCoin", function () {
       const { token } = await loadFixture(deployFixture);
       expect(await token.paused()).to.equal(false);
     });
+
+    it("should support AccessControl interface", async function () {
+      const { token } = await loadFixture(deployFixture);
+      // IAccessControl interface ID
+      expect(await token.supportsInterface("0x7965db0b")).to.equal(true);
+    });
   });
 
   // ──────────────────────────────────────────
@@ -75,49 +118,58 @@ describe("SaThuCoin", function () {
 
   describe("Minting — mint()", function () {
 
-    it("should allow owner to mint tokens to any address", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+    it("should allow minter to mint tokens to any address", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("100");
 
-      await token.mint(alice.address, amount);
+      await token.connect(minter).mint(alice.address, amount);
 
       expect(await token.balanceOf(alice.address)).to.equal(amount);
     });
 
     it("should increase total supply on mint", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("100");
 
-      await token.mint(alice.address, amount);
+      await token.connect(minter).mint(alice.address, amount);
 
       expect(await token.totalSupply()).to.equal(amount);
     });
 
     it("should emit Transfer event from zero address", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("100");
 
-      await expect(token.mint(alice.address, amount))
+      await expect(token.connect(minter).mint(alice.address, amount))
         .to.emit(token, "Transfer")
         .withArgs(ethers.ZeroAddress, alice.address, amount);
     });
 
-    it("should revert when non-owner tries to mint", async function () {
+    it("should revert when non-minter tries to mint", async function () {
       const { token, alice, bob } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("100");
 
       await expect(
         token.connect(alice).mint(bob.address, amount)
-      ).to.be.revertedWithCustomError(token, "OwnableUnauthorizedAccount")
-        .withArgs(alice.address);
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(alice.address, MINTER_ROLE);
+    });
+
+    it("should revert when admin (without MINTER_ROLE) tries to mint", async function () {
+      const { token, admin, alice } = await loadFixture(deployFixture);
+
+      await expect(
+        token.connect(admin).mint(alice.address, ethers.parseEther("100"))
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(admin.address, MINTER_ROLE);
     });
 
     it("should allow minting to multiple addresses", async function () {
-      const { token, alice, bob, charlie } = await loadFixture(deployFixture);
+      const { token, minter, alice, bob, charlie } = await loadFixture(deployFixture);
 
-      await token.mint(alice.address, ethers.parseEther("10"));
-      await token.mint(bob.address, ethers.parseEther("50"));
-      await token.mint(charlie.address, ethers.parseEther("200"));
+      await token.connect(minter).mint(alice.address, ethers.parseEther("10"));
+      await token.connect(minter).mint(bob.address, ethers.parseEther("50"));
+      await token.connect(minter).mint(charlie.address, ethers.parseEther("200"));
 
       expect(await token.balanceOf(alice.address)).to.equal(ethers.parseEther("10"));
       expect(await token.balanceOf(bob.address)).to.equal(ethers.parseEther("50"));
@@ -126,29 +178,29 @@ describe("SaThuCoin", function () {
     });
 
     it("should allow multiple mints to the same address", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
 
-      await token.mint(alice.address, ethers.parseEther("10"));
-      await token.mint(alice.address, ethers.parseEther("20"));
-      await token.mint(alice.address, ethers.parseEther("30"));
+      await token.connect(minter).mint(alice.address, ethers.parseEther("10"));
+      await token.connect(minter).mint(alice.address, ethers.parseEther("20"));
+      await token.connect(minter).mint(alice.address, ethers.parseEther("30"));
 
       expect(await token.balanceOf(alice.address)).to.equal(ethers.parseEther("60"));
     });
 
     it("should allow minting zero tokens (no-op)", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
 
-      await token.mint(alice.address, 0n);
+      await token.connect(minter).mint(alice.address, 0n);
 
       expect(await token.balanceOf(alice.address)).to.equal(0n);
       expect(await token.totalSupply()).to.equal(0n);
     });
 
     it("should revert when minting to zero address", async function () {
-      const { token } = await loadFixture(deployFixture);
+      const { token, minter } = await loadFixture(deployFixture);
 
       await expect(
-        token.mint(ethers.ZeroAddress, ethers.parseEther("100"))
+        token.connect(minter).mint(ethers.ZeroAddress, ethers.parseEther("100"))
       ).to.be.revertedWithCustomError(token, "ERC20InvalidReceiver")
         .withArgs(ethers.ZeroAddress);
     });
@@ -161,11 +213,11 @@ describe("SaThuCoin", function () {
   describe("Minting — mintForDeed()", function () {
 
     it("should mint tokens and emit DeedRewarded event", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("50");
       const deed = "Charity Alpha Foundation";
 
-      await expect(token.mintForDeed(alice.address, amount, deed))
+      await expect(token.connect(minter).mintForDeed(alice.address, amount, deed))
         .to.emit(token, "DeedRewarded")
         .withArgs(alice.address, amount, deed);
 
@@ -173,66 +225,75 @@ describe("SaThuCoin", function () {
     });
 
     it("should also emit Transfer event from zero address", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("50");
 
-      await expect(token.mintForDeed(alice.address, amount, "Test deed"))
+      await expect(token.connect(minter).mintForDeed(alice.address, amount, "Test deed"))
         .to.emit(token, "Transfer")
         .withArgs(ethers.ZeroAddress, alice.address, amount);
     });
 
     it("should handle empty deed string", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("10");
 
-      await expect(token.mintForDeed(alice.address, amount, ""))
+      await expect(token.connect(minter).mintForDeed(alice.address, amount, ""))
         .to.emit(token, "DeedRewarded")
         .withArgs(alice.address, amount, "");
     });
 
     it("should handle long deed string", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("10");
       const longDeed = "A".repeat(500);
 
-      await expect(token.mintForDeed(alice.address, amount, longDeed))
+      await expect(token.connect(minter).mintForDeed(alice.address, amount, longDeed))
         .to.emit(token, "DeedRewarded")
         .withArgs(alice.address, amount, longDeed);
     });
 
     it("should handle unicode deed string", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("10");
-      const deed = "捐赠给慈善机构 🎉";
+      const deed = "Donated to charity";
 
-      await expect(token.mintForDeed(alice.address, amount, deed))
+      await expect(token.connect(minter).mintForDeed(alice.address, amount, deed))
         .to.emit(token, "DeedRewarded")
         .withArgs(alice.address, amount, deed);
     });
 
-    it("should revert when non-owner tries to mintForDeed", async function () {
+    it("should revert when non-minter tries to mintForDeed", async function () {
       const { token, alice, bob } = await loadFixture(deployFixture);
 
       await expect(
         token.connect(alice).mintForDeed(bob.address, ethers.parseEther("10"), "Hack attempt")
-      ).to.be.revertedWithCustomError(token, "OwnableUnauthorizedAccount")
-        .withArgs(alice.address);
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(alice.address, MINTER_ROLE);
+    });
+
+    it("should revert when admin (without MINTER_ROLE) tries to mintForDeed", async function () {
+      const { token, admin, alice } = await loadFixture(deployFixture);
+
+      await expect(
+        token.connect(admin).mintForDeed(alice.address, ethers.parseEther("10"), "Admin deed")
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(admin.address, MINTER_ROLE);
     });
 
     it("should increase total supply correctly", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
 
-      await token.mintForDeed(alice.address, ethers.parseEther("50"), "Deed A");
-      await token.mintForDeed(bob.address, ethers.parseEther("100"), "Deed B");
+      await token.connect(minter).mintForDeed(alice.address, ethers.parseEther("50"), "Deed A");
+      await token.connect(minter).mintForDeed(bob.address, ethers.parseEther("100"), "Deed B");
 
       expect(await token.totalSupply()).to.equal(ethers.parseEther("150"));
     });
 
     it("should revert when minting to zero address via mintForDeed", async function () {
-      const { token } = await loadFixture(deployFixture);
+      const { token, minter } = await loadFixture(deployFixture);
 
       await expect(
-        token.mintForDeed(ethers.ZeroAddress, ethers.parseEther("10"), "Bad deed")
+        token.connect(minter).mintForDeed(ethers.ZeroAddress, ethers.parseEther("10"), "Bad deed")
       ).to.be.revertedWithCustomError(token, "ERC20InvalidReceiver")
         .withArgs(ethers.ZeroAddress);
     });
@@ -245,39 +306,39 @@ describe("SaThuCoin", function () {
   describe("Per-transaction mint limit", function () {
 
     it("should allow minting exactly MAX_MINT_PER_TX", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
 
-      await token.mint(alice.address, MAX_MINT_PER_TX);
+      await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
 
       expect(await token.balanceOf(alice.address)).to.equal(MAX_MINT_PER_TX);
     });
 
     it("should revert when minting above MAX_MINT_PER_TX via mint()", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
       const tooMuch = MAX_MINT_PER_TX + 1n;
 
       await expect(
-        token.mint(alice.address, tooMuch)
+        token.connect(minter).mint(alice.address, tooMuch)
       ).to.be.revertedWithCustomError(token, "MintAmountExceedsLimit")
         .withArgs(tooMuch, MAX_MINT_PER_TX);
     });
 
     it("should revert when minting above MAX_MINT_PER_TX via mintForDeed()", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
       const tooMuch = MAX_MINT_PER_TX + 1n;
 
       await expect(
-        token.mintForDeed(alice.address, tooMuch, "Too much")
+        token.connect(minter).mintForDeed(alice.address, tooMuch, "Too much")
       ).to.be.revertedWithCustomError(token, "MintAmountExceedsLimit")
         .withArgs(tooMuch, MAX_MINT_PER_TX);
     });
 
     it("should allow multiple mints each under the limit", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
 
-      await token.mint(alice.address, MAX_MINT_PER_TX);
-      await token.mint(alice.address, MAX_MINT_PER_TX);
-      await token.mint(alice.address, MAX_MINT_PER_TX);
+      await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
+      await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
+      await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
 
       expect(await token.balanceOf(alice.address)).to.equal(MAX_MINT_PER_TX * 3n);
     });
@@ -294,24 +355,40 @@ describe("SaThuCoin", function () {
       expect(await token.cap()).to.equal(SUPPLY_CAP);
     });
 
-    it("should revert when cumulative mints exceed cap", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+    it("should maintain cap value after minting", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
 
-      // Mint up to near the cap (need to stay under MAX_MINT_PER_TX per tx)
-      // Mint cap - 1 token first (within per-tx limit won't work, so test differently)
-      // Instead, test that a single mint exceeding the cap reverts
-      // First mint some tokens
-      await token.mint(alice.address, MAX_MINT_PER_TX);
-
-      // The cap is 1 billion, per-tx limit is 10k. We can't easily hit the cap.
-      // Instead, test that the cap() is set correctly and rely on OZ's tested ERC20Capped.
+      await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
       expect(await token.cap()).to.equal(SUPPLY_CAP);
     });
 
-    it("should track remaining mintable supply", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+    it("should revert when mint would exceed cap", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      const contractAddress = await token.getAddress();
 
-      await token.mint(alice.address, ethers.parseEther("5000"));
+      // Set totalSupply to cap - 1 SATHU via storage manipulation
+      // In OZ v5 ERC20, _totalSupply is at storage slot 2
+      const almostCap = SUPPLY_CAP - ethers.parseEther("1");
+      const slot = ethers.toBeHex(2, 32);
+      const value = ethers.zeroPadValue(ethers.toBeHex(almostCap), 32);
+      await network.provider.send("hardhat_setStorageAt", [contractAddress, slot, value]);
+
+      expect(await token.totalSupply()).to.equal(almostCap);
+
+      // Minting exactly 1 SATHU should succeed (reaches cap exactly)
+      await token.connect(minter).mint(alice.address, ethers.parseEther("1"));
+      expect(await token.totalSupply()).to.equal(SUPPLY_CAP);
+
+      // Minting 1 more wei should revert with ERC20ExceededCap
+      await expect(
+        token.connect(minter).mint(alice.address, 1n)
+      ).to.be.revertedWithCustomError(token, "ERC20ExceededCap");
+    });
+
+    it("should track remaining mintable supply", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      await token.connect(minter).mint(alice.address, ethers.parseEther("5000"));
 
       const remaining = SUPPLY_CAP - await token.totalSupply();
       expect(remaining).to.equal(SUPPLY_CAP - ethers.parseEther("5000"));
@@ -324,98 +401,119 @@ describe("SaThuCoin", function () {
 
   describe("Pausing", function () {
 
-    it("should allow owner to pause", async function () {
-      const { token } = await loadFixture(deployFixture);
+    it("should allow pauser to pause", async function () {
+      const { token, admin } = await loadFixture(deployFixture);
 
-      await token.pause();
+      await token.connect(admin).pause();
 
       expect(await token.paused()).to.equal(true);
     });
 
-    it("should allow owner to unpause", async function () {
-      const { token } = await loadFixture(deployFixture);
+    it("should allow pauser to unpause", async function () {
+      const { token, admin } = await loadFixture(deployFixture);
 
-      await token.pause();
-      await token.unpause();
+      await token.connect(admin).pause();
+      await token.connect(admin).unpause();
 
       expect(await token.paused()).to.equal(false);
     });
 
     it("should emit Paused event", async function () {
-      const { token, owner } = await loadFixture(deployFixture);
+      const { token, admin } = await loadFixture(deployFixture);
 
-      await expect(token.pause())
+      await expect(token.connect(admin).pause())
         .to.emit(token, "Paused")
-        .withArgs(owner.address);
+        .withArgs(admin.address);
     });
 
     it("should emit Unpaused event", async function () {
-      const { token, owner } = await loadFixture(deployFixture);
+      const { token, admin } = await loadFixture(deployFixture);
 
-      await token.pause();
+      await token.connect(admin).pause();
 
-      await expect(token.unpause())
+      await expect(token.connect(admin).unpause())
         .to.emit(token, "Unpaused")
-        .withArgs(owner.address);
+        .withArgs(admin.address);
     });
 
-    it("should revert when non-owner tries to pause", async function () {
+    it("should revert when non-pauser tries to pause", async function () {
       const { token, alice } = await loadFixture(deployFixture);
 
       await expect(
         token.connect(alice).pause()
-      ).to.be.revertedWithCustomError(token, "OwnableUnauthorizedAccount")
-        .withArgs(alice.address);
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(alice.address, PAUSER_ROLE);
     });
 
-    it("should revert when non-owner tries to unpause", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+    it("should revert when minter (without PAUSER_ROLE) tries to pause", async function () {
+      const { token, minter } = await loadFixture(deployFixture);
 
-      await token.pause();
+      await expect(
+        token.connect(minter).pause()
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(minter.address, PAUSER_ROLE);
+    });
+
+    it("should revert when non-pauser tries to unpause", async function () {
+      const { token, admin, alice } = await loadFixture(deployFixture);
+
+      await token.connect(admin).pause();
 
       await expect(
         token.connect(alice).unpause()
-      ).to.be.revertedWithCustomError(token, "OwnableUnauthorizedAccount")
-        .withArgs(alice.address);
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(alice.address, PAUSER_ROLE);
     });
 
     it("should revert mint() when paused", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, admin, minter, alice } = await loadFixture(deployFixture);
 
-      await token.pause();
+      await token.connect(admin).pause();
 
       await expect(
-        token.mint(alice.address, ethers.parseEther("100"))
+        token.connect(minter).mint(alice.address, ethers.parseEther("100"))
       ).to.be.revertedWithCustomError(token, "EnforcedPause");
     });
 
     it("should revert mintForDeed() when paused", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, admin, minter, alice } = await loadFixture(deployFixture);
 
-      await token.pause();
+      await token.connect(admin).pause();
 
       await expect(
-        token.mintForDeed(alice.address, ethers.parseEther("100"), "Test")
+        token.connect(minter).mintForDeed(alice.address, ethers.parseEther("100"), "Test")
       ).to.be.revertedWithCustomError(token, "EnforcedPause");
     });
 
     it("should revert transfers when paused", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
+      const { token, admin, minter, alice, bob } = await loadFixture(deployFixture);
 
-      await token.mint(alice.address, ethers.parseEther("100"));
-      await token.pause();
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      await token.connect(admin).pause();
 
       await expect(
         token.connect(alice).transfer(bob.address, ethers.parseEther("10"))
       ).to.be.revertedWithCustomError(token, "EnforcedPause");
     });
 
-    it("should resume transfers after unpause", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
+    it("should revert transferFrom when paused", async function () {
+      const { token, admin, minter, alice, bob } = await loadFixture(deployFixture);
 
-      await token.mint(alice.address, ethers.parseEther("100"));
-      await token.pause();
-      await token.unpause();
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      await token.connect(alice).approve(bob.address, ethers.parseEther("50"));
+      await token.connect(admin).pause();
+
+      await expect(
+        token.connect(bob).transferFrom(alice.address, bob.address, ethers.parseEther("10"))
+      ).to.be.revertedWithCustomError(token, "EnforcedPause");
+    });
+
+    it("should resume transfers after unpause", async function () {
+      const { token, admin, minter, alice, bob } = await loadFixture(deployFixture);
+
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      await token.connect(admin).pause();
+      await token.connect(admin).unpause();
 
       await token.connect(alice).transfer(bob.address, ethers.parseEther("10"));
 
@@ -423,12 +521,12 @@ describe("SaThuCoin", function () {
     });
 
     it("should resume minting after unpause", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, admin, minter, alice } = await loadFixture(deployFixture);
 
-      await token.pause();
-      await token.unpause();
+      await token.connect(admin).pause();
+      await token.connect(admin).unpause();
 
-      await token.mint(alice.address, ethers.parseEther("100"));
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
 
       expect(await token.balanceOf(alice.address)).to.equal(ethers.parseEther("100"));
     });
@@ -441,9 +539,9 @@ describe("SaThuCoin", function () {
   describe("Transfers", function () {
 
     it("should allow token holders to transfer", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
 
-      await token.mint(alice.address, ethers.parseEther("100"));
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
       await token.connect(alice).transfer(bob.address, ethers.parseEther("30"));
 
       expect(await token.balanceOf(alice.address)).to.equal(ethers.parseEther("70"));
@@ -451,8 +549,8 @@ describe("SaThuCoin", function () {
     });
 
     it("should use changeTokenBalances matcher", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
-      await token.mint(alice.address, ethers.parseEther("100"));
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
 
       await expect(
         token.connect(alice).transfer(bob.address, ethers.parseEther("40"))
@@ -472,8 +570,8 @@ describe("SaThuCoin", function () {
     });
 
     it("should not change total supply on transfer", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
-      await token.mint(alice.address, ethers.parseEther("100"));
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
 
       const supplyBefore = await token.totalSupply();
       await token.connect(alice).transfer(bob.address, ethers.parseEther("50"));
@@ -483,8 +581,8 @@ describe("SaThuCoin", function () {
     });
 
     it("should allow transfer to self", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
-      await token.mint(alice.address, ethers.parseEther("100"));
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
 
       await token.connect(alice).transfer(alice.address, ethers.parseEther("50"));
 
@@ -499,8 +597,8 @@ describe("SaThuCoin", function () {
   describe("Approvals", function () {
 
     it("should allow approve and transferFrom", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
-      await token.mint(alice.address, ethers.parseEther("100"));
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
 
       await token.connect(alice).approve(bob.address, ethers.parseEther("50"));
       expect(await token.allowance(alice.address, bob.address)).to.equal(ethers.parseEther("50"));
@@ -513,8 +611,8 @@ describe("SaThuCoin", function () {
     });
 
     it("should revert transferFrom exceeding allowance", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
-      await token.mint(alice.address, ethers.parseEther("100"));
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
       await token.connect(alice).approve(bob.address, ethers.parseEther("10"));
 
       await expect(
@@ -522,9 +620,18 @@ describe("SaThuCoin", function () {
       ).to.be.revertedWithCustomError(token, "ERC20InsufficientAllowance");
     });
 
+    it("should emit Approval event", async function () {
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      await expect(token.connect(alice).approve(bob.address, ethers.parseEther("50")))
+        .to.emit(token, "Approval")
+        .withArgs(alice.address, bob.address, ethers.parseEther("50"));
+    });
+
     it("should allow approval overwrite", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
-      await token.mint(alice.address, ethers.parseEther("100"));
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
 
       await token.connect(alice).approve(bob.address, ethers.parseEther("100"));
       expect(await token.allowance(alice.address, bob.address)).to.equal(ethers.parseEther("100"));
@@ -535,129 +642,148 @@ describe("SaThuCoin", function () {
   });
 
   // ──────────────────────────────────────────
-  // OWNERSHIP (Two-Step)
+  // ROLE MANAGEMENT (AccessControl)
   // ──────────────────────────────────────────
 
-  describe("Ownership (Ownable2Step)", function () {
+  describe("Role Management (AccessControl)", function () {
 
-    it("should set pending owner on transferOwnership", async function () {
-      const { token, owner, alice } = await loadFixture(deployFixture);
+    it("should allow admin to grant MINTER_ROLE to a new address", async function () {
+      const { token, admin, alice } = await loadFixture(deployFixture);
 
-      await token.transferOwnership(alice.address);
+      await token.connect(admin).grantRole(MINTER_ROLE, alice.address);
 
-      // Owner is still the original owner until accepted
-      expect(await token.owner()).to.equal(owner.address);
-      expect(await token.pendingOwner()).to.equal(alice.address);
+      expect(await token.hasRole(MINTER_ROLE, alice.address)).to.equal(true);
     });
 
-    it("should transfer ownership when pending owner accepts", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+    it("should allow new minter to mint after being granted MINTER_ROLE", async function () {
+      const { token, admin, alice, bob } = await loadFixture(deployFixture);
 
-      await token.transferOwnership(alice.address);
-      await token.connect(alice).acceptOwnership();
-
-      expect(await token.owner()).to.equal(alice.address);
-      expect(await token.pendingOwner()).to.equal(ethers.ZeroAddress);
-    });
-
-    it("should allow new owner to mint after accepting", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
-
-      await token.transferOwnership(alice.address);
-      await token.connect(alice).acceptOwnership();
+      await token.connect(admin).grantRole(MINTER_ROLE, alice.address);
       await token.connect(alice).mint(bob.address, ethers.parseEther("100"));
 
       expect(await token.balanceOf(bob.address)).to.equal(ethers.parseEther("100"));
     });
 
-    it("should prevent old owner from minting after transfer", async function () {
-      const { token, owner, alice, bob } = await loadFixture(deployFixture);
+    it("should allow admin to revoke MINTER_ROLE", async function () {
+      const { token, admin, minter, alice } = await loadFixture(deployFixture);
 
-      await token.transferOwnership(alice.address);
-      await token.connect(alice).acceptOwnership();
+      await token.connect(admin).revokeRole(MINTER_ROLE, minter.address);
 
-      await expect(
-        token.mint(bob.address, ethers.parseEther("100"))
-      ).to.be.revertedWithCustomError(token, "OwnableUnauthorizedAccount")
-        .withArgs(owner.address);
-    });
-
-    it("should revert when non-pending-owner tries to accept", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
-
-      await token.transferOwnership(alice.address);
+      expect(await token.hasRole(MINTER_ROLE, minter.address)).to.equal(false);
 
       await expect(
-        token.connect(bob).acceptOwnership()
-      ).to.be.revertedWithCustomError(token, "OwnableUnauthorizedAccount")
-        .withArgs(bob.address);
+        token.connect(minter).mint(alice.address, ethers.parseEther("100"))
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(minter.address, MINTER_ROLE);
     });
 
-    it("should allow owner to cancel pending transfer by setting new pending owner", async function () {
-      const { token, owner, alice, bob } = await loadFixture(deployFixture);
+    it("should allow admin to grant PAUSER_ROLE to a new address", async function () {
+      const { token, admin, alice } = await loadFixture(deployFixture);
 
-      await token.transferOwnership(alice.address);
-      expect(await token.pendingOwner()).to.equal(alice.address);
+      await token.connect(admin).grantRole(PAUSER_ROLE, alice.address);
 
-      // Change pending owner to bob instead
-      await token.transferOwnership(bob.address);
-      expect(await token.pendingOwner()).to.equal(bob.address);
+      expect(await token.hasRole(PAUSER_ROLE, alice.address)).to.equal(true);
 
-      // Alice can no longer accept
-      await expect(
-        token.connect(alice).acceptOwnership()
-      ).to.be.revertedWithCustomError(token, "OwnableUnauthorizedAccount")
-        .withArgs(alice.address);
-
-      // Bob can accept
-      await token.connect(bob).acceptOwnership();
-      expect(await token.owner()).to.equal(bob.address);
+      await token.connect(alice).pause();
+      expect(await token.paused()).to.equal(true);
     });
 
-    it("should revert on renounceOwnership (disabled)", async function () {
-      const { token } = await loadFixture(deployFixture);
+    it("should allow admin to transfer DEFAULT_ADMIN_ROLE to new admin", async function () {
+      const { token, admin, alice } = await loadFixture(deployFixture);
 
-      await expect(
-        token.renounceOwnership()
-      ).to.be.revertedWith("Renounce disabled");
+      await token.connect(admin).grantRole(DEFAULT_ADMIN_ROLE, alice.address);
+      await token.connect(admin).revokeRole(DEFAULT_ADMIN_ROLE, admin.address);
+
+      expect(await token.hasRole(DEFAULT_ADMIN_ROLE, alice.address)).to.equal(true);
+      expect(await token.hasRole(DEFAULT_ADMIN_ROLE, admin.address)).to.equal(false);
     });
 
-    it("should revert renounceOwnership even from owner", async function () {
-      const { token, owner } = await loadFixture(deployFixture);
+    it("should prevent non-admin from granting roles", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
 
       await expect(
-        token.connect(owner).renounceOwnership()
-      ).to.be.revertedWith("Renounce disabled");
-
-      // Owner is still set
-      expect(await token.owner()).to.equal(owner.address);
+        token.connect(minter).grantRole(MINTER_ROLE, alice.address)
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(minter.address, DEFAULT_ADMIN_ROLE);
     });
 
-    it("should prevent non-owner from transferring ownership", async function () {
-      const { token, alice, bob } = await loadFixture(deployFixture);
+    it("should prevent non-admin from revoking roles", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
 
       await expect(
-        token.connect(alice).transferOwnership(bob.address)
-      ).to.be.revertedWithCustomError(token, "OwnableUnauthorizedAccount")
-        .withArgs(alice.address);
+        token.connect(alice).revokeRole(MINTER_ROLE, minter.address)
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount")
+        .withArgs(alice.address, DEFAULT_ADMIN_ROLE);
     });
 
-    it("should emit OwnershipTransferStarted on transferOwnership", async function () {
-      const { token, owner, alice } = await loadFixture(deployFixture);
+    it("should emit RoleGranted event", async function () {
+      const { token, admin, alice } = await loadFixture(deployFixture);
 
-      await expect(token.transferOwnership(alice.address))
-        .to.emit(token, "OwnershipTransferStarted")
-        .withArgs(owner.address, alice.address);
+      await expect(token.connect(admin).grantRole(MINTER_ROLE, alice.address))
+        .to.emit(token, "RoleGranted")
+        .withArgs(MINTER_ROLE, alice.address, admin.address);
     });
 
-    it("should emit OwnershipTransferred on acceptOwnership", async function () {
-      const { token, owner, alice } = await loadFixture(deployFixture);
+    it("should emit RoleRevoked event", async function () {
+      const { token, admin, minter } = await loadFixture(deployFixture);
 
-      await token.transferOwnership(alice.address);
+      await expect(token.connect(admin).revokeRole(MINTER_ROLE, minter.address))
+        .to.emit(token, "RoleRevoked")
+        .withArgs(MINTER_ROLE, minter.address, admin.address);
+    });
 
-      await expect(token.connect(alice).acceptOwnership())
-        .to.emit(token, "OwnershipTransferred")
-        .withArgs(owner.address, alice.address);
+    it("should allow minter to renounce own MINTER_ROLE", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      await token.connect(minter).renounceRole(MINTER_ROLE, minter.address);
+
+      expect(await token.hasRole(MINTER_ROLE, minter.address)).to.equal(false);
+    });
+
+    it("should revert when renouncing DEFAULT_ADMIN_ROLE", async function () {
+      const { token, admin } = await loadFixture(deployFixture);
+
+      await expect(
+        token.connect(admin).renounceRole(DEFAULT_ADMIN_ROLE, admin.address)
+      ).to.be.revertedWith("Renounce admin disabled");
+    });
+
+    it("should revert renounceRole with wrong callerConfirmation", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      await expect(
+        token.connect(minter).renounceRole(MINTER_ROLE, alice.address)
+      ).to.be.revertedWithCustomError(token, "AccessControlBadConfirmation");
+    });
+
+    it("should support multiple accounts with the same role", async function () {
+      const { token, admin, minter, alice, bob } = await loadFixture(deployFixture);
+
+      await token.connect(admin).grantRole(MINTER_ROLE, alice.address);
+
+      // Both minter and alice can mint
+      await token.connect(minter).mint(bob.address, ethers.parseEther("50"));
+      await token.connect(alice).mint(bob.address, ethers.parseEther("50"));
+
+      expect(await token.balanceOf(bob.address)).to.equal(ethers.parseEther("100"));
+    });
+
+    it("should allow key rotation — grant new minter, revoke old minter", async function () {
+      const { token, admin, minter, alice, bob } = await loadFixture(deployFixture);
+
+      // Grant new minter
+      await token.connect(admin).grantRole(MINTER_ROLE, alice.address);
+      // Revoke old minter
+      await token.connect(admin).revokeRole(MINTER_ROLE, minter.address);
+
+      // Old minter can no longer mint
+      await expect(
+        token.connect(minter).mint(bob.address, ethers.parseEther("100"))
+      ).to.be.revertedWithCustomError(token, "AccessControlUnauthorizedAccount");
+
+      // New minter can mint
+      await token.connect(alice).mint(bob.address, ethers.parseEther("100"));
+      expect(await token.balanceOf(bob.address)).to.equal(ethers.parseEther("100"));
     });
   });
 
@@ -668,11 +794,11 @@ describe("SaThuCoin", function () {
   describe("Supply tracking", function () {
 
     it("should track supply across many mints", async function () {
-      const { token, alice, bob, charlie } = await loadFixture(deployFixture);
+      const { token, minter, alice, bob, charlie } = await loadFixture(deployFixture);
 
-      await token.mint(alice.address, ethers.parseEther("100"));
-      await token.mintForDeed(bob.address, ethers.parseEther("200"), "Deed B");
-      await token.mint(charlie.address, ethers.parseEther("300"));
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      await token.connect(minter).mintForDeed(bob.address, ethers.parseEther("200"), "Deed B");
+      await token.connect(minter).mint(charlie.address, ethers.parseEther("300"));
 
       expect(await token.totalSupply()).to.equal(ethers.parseEther("600"));
 
@@ -683,10 +809,9 @@ describe("SaThuCoin", function () {
     });
 
     it("should handle mints up to per-tx limit", async function () {
-      const { token, alice } = await loadFixture(deployFixture);
+      const { token, minter, alice } = await loadFixture(deployFixture);
 
-      // Mint MAX_MINT_PER_TX (10,000 tokens)
-      await token.mint(alice.address, MAX_MINT_PER_TX);
+      await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
 
       expect(await token.balanceOf(alice.address)).to.equal(MAX_MINT_PER_TX);
       expect(await token.totalSupply()).to.equal(MAX_MINT_PER_TX);

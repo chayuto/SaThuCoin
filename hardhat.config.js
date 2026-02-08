@@ -1,6 +1,7 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("dotenv").config();
 require("hardhat-contract-sizer");
+require("./scripts/mint");
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {

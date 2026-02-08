@@ -7,46 +7,101 @@ async function main() {
   const network = hre.network.name;
   const chainId = (await hre.ethers.provider.getNetwork()).chainId;
 
+  // Determine admin and minter addresses
+  const admin = process.env.ADMIN_ADDRESS || deployer.address;
+  const minter = process.env.MINTER_ADDRESS || deployer.address;
+
   console.log("═══════════════════════════════════════════");
   console.log("  SaThuCoin Deployment");
   console.log("═══════════════════════════════════════════");
   console.log(`  Network:  ${network}`);
   console.log(`  Chain ID: ${chainId}`);
   console.log(`  Deployer: ${deployer.address}`);
+  console.log(`  Admin:    ${admin}`);
+  console.log(`  Minter:   ${minter}`);
 
   const balance = await hre.ethers.provider.getBalance(deployer.address);
   console.log(`  Balance:  ${hre.ethers.formatEther(balance)} ETH`);
   console.log("═══════════════════════════════════════════");
 
-  if (balance === 0n) {
-    console.error("\n❌ Deployer has zero balance. Fund the wallet first.");
+  // Warn about public RPC on mainnet
+  if (network === "base-mainnet") {
+    const rpcUrl = hre.network.config.url || "";
+    if (rpcUrl.includes("mainnet.base.org")) {
+      console.log("\n  WARNING: Using public RPC endpoint for mainnet.");
+      console.log("  Consider using a private RPC (Alchemy, QuickNode) for reliability.\n");
+    }
+  }
+
+  // Gas estimation
+  console.log("\n  Estimating deployment gas...");
+  const SaThuCoin = await hre.ethers.getContractFactory("SaThuCoin");
+  const deployTx = await SaThuCoin.getDeployTransaction(admin, minter);
+  const estimatedGas = await hre.ethers.provider.estimateGas(deployTx);
+  const feeData = await hre.ethers.provider.getFeeData();
+  const gasPrice = feeData.maxFeePerGas || feeData.gasPrice || 0n;
+  const estimatedCost = estimatedGas * gasPrice;
+
+  console.log(`  Estimated gas:  ${estimatedGas.toString()}`);
+  console.log(`  Gas price:      ${hre.ethers.formatUnits(gasPrice, "gwei")} gwei`);
+  console.log(`  Estimated cost: ${hre.ethers.formatEther(estimatedCost)} ETH`);
+
+  // Check balance covers deployment with 20% margin
+  const minRequired = estimatedCost + estimatedCost / 5n;
+  if (balance < minRequired) {
+    console.error(`\n  Deployer balance too low.`);
+    console.error(`  Have:     ${hre.ethers.formatEther(balance)} ETH`);
+    console.error(`  Need:     ${hre.ethers.formatEther(minRequired)} ETH (est + 20% margin)`);
     process.exit(1);
   }
 
   // Deploy
-  console.log("\n⏳ Deploying SaThuCoin...");
-  const SaThuCoin = await hre.ethers.getContractFactory("SaThuCoin");
-  const token = await SaThuCoin.deploy();
+  console.log("\n  Deploying SaThuCoin...");
+  const token = await SaThuCoin.deploy(admin, minter);
   await token.waitForDeployment();
 
   const contractAddress = await token.getAddress();
-  const deployTx = token.deploymentTransaction();
+  const receipt = await token.deploymentTransaction().wait();
 
-  console.log(`\n✅ SaThuCoin deployed!`);
-  console.log(`   Address: ${contractAddress}`);
-  console.log(`   Tx Hash: ${deployTx.hash}`);
+  // Wait for confirmations on live networks
+  const isLive = network !== "hardhat" && network !== "localhost";
+  if (isLive) {
+    const confirmations = network === "base-mainnet" ? 5 : 2;
+    console.log(`\n  Waiting for ${confirmations} block confirmations...`);
+    await token.deploymentTransaction().wait(confirmations);
+    console.log(`  ${confirmations} confirmations received.`);
+  }
 
-  // Verify initial state
+  console.log(`\n  SaThuCoin deployed!`);
+  console.log(`   Address:    ${contractAddress}`);
+  console.log(`   Tx Hash:    ${receipt.hash}`);
+  console.log(`   Block:      ${receipt.blockNumber}`);
+  console.log(`   Gas Used:   ${receipt.gasUsed.toString()}`);
+
+  // Verify initial state (role-based)
   const name = await token.name();
   const symbol = await token.symbol();
   const totalSupply = await token.totalSupply();
-  const owner = await token.owner();
+  const DEFAULT_ADMIN_ROLE = await token.DEFAULT_ADMIN_ROLE();
+  const MINTER_ROLE = await token.MINTER_ROLE();
+  const PAUSER_ROLE = await token.PAUSER_ROLE();
 
-  console.log(`\n📋 Contract State:`);
+  const adminHasAdmin = await token.hasRole(DEFAULT_ADMIN_ROLE, admin);
+  const minterHasMinter = await token.hasRole(MINTER_ROLE, minter);
+  const adminHasPauser = await token.hasRole(PAUSER_ROLE, admin);
+
+  console.log(`\n  Contract State:`);
   console.log(`   Name:         ${name}`);
   console.log(`   Symbol:       ${symbol}`);
   console.log(`   Total Supply: ${hre.ethers.formatEther(totalSupply)} ${symbol}`);
-  console.log(`   Owner:        ${owner}`);
+  console.log(`   Admin role:   ${admin} -> ${adminHasAdmin}`);
+  console.log(`   Minter role:  ${minter} -> ${minterHasMinter}`);
+  console.log(`   Pauser role:  ${admin} -> ${adminHasPauser}`);
+
+  if (!adminHasAdmin || !minterHasMinter || !adminHasPauser) {
+    console.error("\n  ROLE VERIFICATION FAILED — roles not set correctly!");
+    process.exit(1);
+  }
 
   // Save deployment info
   const dataDir = path.join(__dirname, "..", "data");
@@ -59,21 +114,24 @@ async function main() {
     chainId: chainId.toString(),
     contractAddress: contractAddress,
     deployer: deployer.address,
-    txHash: deployTx.hash,
+    admin: admin,
+    minter: minter,
+    txHash: receipt.hash,
+    blockNumber: receipt.blockNumber,
+    gasUsed: receipt.gasUsed.toString(),
     timestamp: new Date().toISOString(),
-    blockNumber: deployTx.blockNumber,
     solidity: "0.8.26",
     optimizer: { enabled: true, runs: 200 },
   };
 
   const deploymentFile = path.join(dataDir, "deployment.json");
   fs.writeFileSync(deploymentFile, JSON.stringify(deploymentInfo, null, 2));
-  console.log(`\n💾 Deployment info saved to: data/deployment.json`);
+  console.log(`\n  Deployment info saved to: data/deployment.json`);
 
-  // Verification reminder
-  if (network !== "hardhat" && network !== "localhost") {
-    console.log(`\n🔍 To verify on BaseScan, wait ~60 seconds then run:`);
-    console.log(`   npx hardhat verify --network ${network} ${contractAddress}`);
+  // Post-deploy instructions
+  if (isLive) {
+    console.log(`\n  To verify on BaseScan, wait ~60 seconds then run:`);
+    console.log(`   npx hardhat run scripts/verify.js --network ${network}`);
   }
 
   console.log("\n═══════════════════════════════════════════");
@@ -82,6 +140,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error("\n❌ Deployment failed:", error.message);
+  console.error("\n  Deployment failed:", error.message);
   process.exitCode = 1;
 });
