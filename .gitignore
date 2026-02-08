@@ -23,6 +23,10 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code (local/personal files)
+.claude/settings.local.json
+CLAUDE.local.md
+
 # Misc
 *.log
 docs/internal/
