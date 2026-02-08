@@ -7,6 +7,7 @@
     "compile": "npx hardhat compile",
     "test": "npx hardhat test",
     "test:gas": "REPORT_GAS=true npx hardhat test",
+    "test:config": "npx hardhat test test/config-loader.test.js",
     "lint:sol": "solhint 'contracts/**/*.sol'",
     "coverage": "npx hardhat coverage",
     "size": "npx hardhat size-contracts",
@@ -14,7 +15,8 @@
     "deploy:mainnet": "npx hardhat run scripts/deploy.js --network base-mainnet",
     "verify:testnet": "npx hardhat run scripts/verify.js --network base-sepolia",
     "verify:mainnet": "npx hardhat run scripts/verify.js --network base-mainnet",
-    "clean": "npx hardhat clean"
+    "clean": "npx hardhat clean",
+    "prepare": "husky"
   },
   "repository": {
     "type": "git",
@@ -22,24 +24,31 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/chayuto/SaThuCoin/issues"
   },
   "homepage": "https://github.com/chayuto/SaThuCoin#readme",
+  "lint-staged": {
+    "contracts/**/*.sol": [
+      "solhint"
+    ]
+  },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "hardhat": "^2.28.4",
-    "hardhat-contract-sizer": "^2.10.0",
-    "solhint": "^5.0.5",
-    "solidity-coverage": "^0.8.14"
+    "@nomicfoundation/hardhat-toolbox": "5.0.0",
+    "hardhat": "2.28.4",
+    "hardhat-contract-sizer": "2.10.1",
+    "husky": "9.1.7",
+    "lint-staged": "15.4.3",
+    "solhint": "5.2.0",
+    "solidity-coverage": "0.8.17"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.4.0",
-    "axios": "^1.13.4",
-    "cheerio": "^1.2.0",
-    "dotenv": "^17.2.4",
-    "node-cron": "^4.2.1"
+    "@openzeppelin/contracts": "5.4.0",
+    "axios": "1.13.4",
+    "cheerio": "1.2.0",
+    "dotenv": "17.2.4",
+    "node-cron": "4.2.1"
   }
 }
