@@ -1,0 +1,11 @@
+# Default owner
+* @chayuto
+
+# Smart contracts require explicit review
+contracts/ @chayuto
+scripts/deploy.js @chayuto
+scripts/verify.js @chayuto
+
+# Security-sensitive
+.github/workflows/ @chayuto
+hardhat.config.js @chayuto
