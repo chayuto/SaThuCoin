@@ -1,0 +1,191 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".claude/**"
+      - ".github/copilot-instructions.md"
+      - "LICENSE"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".claude/**"
+      - ".github/copilot-instructions.md"
+      - "LICENSE"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ─── Solhint Linter ──────────────────────────────────────────────
+  lint:
+    name: Lint Solidity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint:sol
+
+  # ─── Compile + Test (Node matrix) ────────────────────────────────
+  build-and-test:
+    name: Build & Test (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Compile contracts
+        run: npm run compile
+
+      - name: Check contract sizes
+        run: npm run size
+
+      - name: Run tests
+        run: npm test
+
+  # ─── Coverage ─────────────────────────────────────────────────────
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run coverage
+        run: npm run coverage
+
+      - name: Check coverage threshold (90%)
+        run: |
+          node -e "
+            const summary = require('./coverage/coverage-summary.json');
+            const totals = summary.total;
+            const metrics = ['lines', 'statements', 'functions', 'branches'];
+            let failed = false;
+            for (const m of metrics) {
+              const pct = totals[m].pct;
+              console.log(m + ': ' + pct + '%');
+              if (pct < 90) {
+                console.error('FAIL: ' + m + ' coverage ' + pct + '% is below 90% threshold');
+                failed = true;
+              }
+            }
+            if (failed) process.exit(1);
+            console.log('All coverage thresholds passed.');
+          "
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+  # ─── Slither Static Analysis ──────────────────────────────────────
+  slither:
+    name: Slither Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Compile contracts
+        run: npm run compile
+
+      - name: Run Slither
+        id: slither
+        uses: crytic/slither-action@v0.4.1
+        continue-on-error: true
+        with:
+          ignore-compile: true
+          fail-on: medium
+          sarif: slither-results.sarif
+
+      - name: Upload SARIF to GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: slither-results.sarif
+
+  # ─── Gas Report (PRs only) ───────────────────────────────────────
+  gas-report:
+    name: Gas Report
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Compile contracts
+        run: npm run compile
+
+      - name: Run tests with gas reporting
+        run: npm run test:gas
+
+  # ─── Dependency Audit ─────────────────────────────────────────────
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+      - name: Dependency review (PRs only)
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
