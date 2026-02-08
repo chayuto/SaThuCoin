@@ -2,9 +2,12 @@
 pragma solidity 0.8.26;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20Capped} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Capped.sol";
 import {ERC20Pausable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /// @title SaThuCoin (SATHU)
@@ -14,9 +17,9 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 ///      to verified good deeds. No initial supply — every SATHU represents a verified donation.
 ///      Uses AccessControl for role separation (admin vs minter vs pauser),
 ///      ERC20Capped for supply limits, ERC20Pausable for emergency stops,
-///      and ERC20Permit for gasless approvals.
+///      ERC20Burnable for token destruction, and ERC20Permit for gasless approvals.
 /// @custom:security-contact security@sathucoin.example
-contract SaThuCoin is ERC20, ERC20Capped, ERC20Pausable, ERC20Permit, AccessControl {
+contract SaThuCoin is ERC20, ERC20Capped, ERC20Pausable, ERC20Burnable, ERC20Permit, AccessControl {
 
     /// @notice Role identifier for accounts that can mint tokens.
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
@@ -27,10 +30,25 @@ contract SaThuCoin is ERC20, ERC20Capped, ERC20Pausable, ERC20Permit, AccessCont
     /// @notice Maximum tokens mintable in a single transaction (10,000 SATHU).
     uint256 public constant MAX_MINT_PER_TX = 10_000 * 10 ** 18;
 
+    /// @notice Maximum tokens mintable globally per day (500,000 SATHU).
+    uint256 public constant MAX_DAILY_MINT = 500_000 * 10 ** 18;
+
+    /// @notice Tracks total tokens minted per day (day key = block.timestamp / 1 days).
+    mapping(uint256 => uint256) private _dailyMinted;
+
     /// @notice Thrown when a mint amount exceeds the per-transaction limit.
     /// @param amount The requested mint amount.
     /// @param maxAllowed The maximum allowed per transaction.
     error MintAmountExceedsLimit(uint256 amount, uint256 maxAllowed);
+
+    /// @notice Thrown when a mint would exceed the global daily limit.
+    /// @param dayKey The day identifier (block.timestamp / 1 days).
+    /// @param attempted The total that would have been minted today.
+    /// @param maxAllowed The daily maximum.
+    error DailyMintCapExceeded(uint256 dayKey, uint256 attempted, uint256 maxAllowed);
+
+    /// @notice Thrown when attempting to renounce DEFAULT_ADMIN_ROLE.
+    error AdminRenounceDisabled();
 
     /// @notice Emitted when tokens are minted for a verified good deed.
     /// @param recipient The wallet that receives the SATHU tokens.
@@ -62,6 +80,7 @@ contract SaThuCoin is ERC20, ERC20Capped, ERC20Pausable, ERC20Permit, AccessCont
         if (amount > MAX_MINT_PER_TX) {
             revert MintAmountExceedsLimit(amount, MAX_MINT_PER_TX);
         }
+        _enforceDailyLimit(amount);
         _mint(to, amount);
     }
 
@@ -77,6 +96,7 @@ contract SaThuCoin is ERC20, ERC20Capped, ERC20Pausable, ERC20Permit, AccessCont
         if (amount > MAX_MINT_PER_TX) {
             revert MintAmountExceedsLimit(amount, MAX_MINT_PER_TX);
         }
+        _enforceDailyLimit(amount);
         _mint(to, amount);
         emit DeedRewarded(to, amount, deed);
     }
@@ -95,7 +115,7 @@ contract SaThuCoin is ERC20, ERC20Capped, ERC20Pausable, ERC20Permit, AccessCont
     ///      MINTER_ROLE and PAUSER_ROLE can still be renounced normally.
     function renounceRole(bytes32 role, address callerConfirmation) public override {
         if (role == DEFAULT_ADMIN_ROLE) {
-            revert("Renounce admin disabled");
+            revert AdminRenounceDisabled();
         }
         super.renounceRole(role, callerConfirmation);
     }
@@ -109,12 +129,26 @@ contract SaThuCoin is ERC20, ERC20Capped, ERC20Pausable, ERC20Permit, AccessCont
     }
 
     /// @dev Required override for AccessControl + ERC20Permit (both inherit ERC165).
+    ///      Advertises IERC20 and IERC20Permit in addition to IAccessControl and IERC165.
     function supportsInterface(bytes4 interfaceId)
         public
         view
         override(AccessControl)
         returns (bool)
     {
-        return super.supportsInterface(interfaceId);
+        return
+            interfaceId == type(IERC20).interfaceId ||
+            interfaceId == type(IERC20Permit).interfaceId ||
+            super.supportsInterface(interfaceId);
+    }
+
+    /// @dev Enforces the global daily minting limit.
+    function _enforceDailyLimit(uint256 amount) private {
+        uint256 today = block.timestamp / 1 days;
+        uint256 newTotal = _dailyMinted[today] + amount;
+        if (newTotal > MAX_DAILY_MINT) {
+            revert DailyMintCapExceeded(today, newTotal, MAX_DAILY_MINT);
+        }
+        _dailyMinted[today] = newTotal;
     }
 }
