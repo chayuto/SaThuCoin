@@ -27,6 +27,12 @@ Thumbs.db
 .claude/settings.local.json
 CLAUDE.local.md
 
+# Slither
+crytic-export/
+
+# Coverage (additional)
+.solcover_artifacts/
+
 # Misc
 *.log
 docs/internal/

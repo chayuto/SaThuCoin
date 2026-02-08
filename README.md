@@ -1,6 +1,13 @@
 # SaThuCoin (SATHU)
 
+![SaThuCoin Banner](assets/images/sathu_banner.png)
+
 A fictional ERC-20 token on Base chain that rewards charitable donors. Every SATHU in existence represents a verified donation someone made to a public cause.
+
+<p align="center">
+  <img src="assets/images/sathu_coin.png" width="45%" alt="SaThuCoin Token">
+  <img src="assets/images/sathu_mascot.png" width="45%" alt="SaThuCoin Mascot">
+</p>
 
 ## Quick Start
 
