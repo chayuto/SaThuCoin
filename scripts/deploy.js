@@ -7,9 +7,46 @@ async function main() {
   const network = hre.network.name;
   const chainId = (await hre.ethers.provider.getNetwork()).chainId;
 
-  // Determine admin and minter addresses
-  const admin = process.env.ADMIN_ADDRESS || deployer.address;
-  const minter = process.env.MINTER_ADDRESS || deployer.address;
+  // Mainnet safety: require explicit addresses
+  if (network === "base-mainnet") {
+    if (!process.env.ADMIN_ADDRESS) {
+      console.error("\n  ERROR: ADMIN_ADDRESS must be set for mainnet deployment.");
+      console.error("  Set it to your Safe multisig address in .env\n");
+      process.exit(1);
+    }
+    if (!process.env.MINTER_ADDRESS) {
+      console.error("\n  ERROR: MINTER_ADDRESS must be set for mainnet deployment.");
+      console.error("  Set it to your minter bot address in .env\n");
+      process.exit(1);
+    }
+  }
+
+  // Determine and validate admin and minter addresses
+  let admin, minter;
+  try {
+    admin = process.env.ADMIN_ADDRESS
+      ? hre.ethers.getAddress(process.env.ADMIN_ADDRESS)
+      : deployer.address;
+  } catch (e) {
+    console.error(`\n  ERROR: Invalid ADMIN_ADDRESS: ${process.env.ADMIN_ADDRESS}`);
+    console.error("  Must be a valid EIP-55 checksummed Ethereum address.\n");
+    process.exit(1);
+  }
+  try {
+    minter = process.env.MINTER_ADDRESS
+      ? hre.ethers.getAddress(process.env.MINTER_ADDRESS)
+      : deployer.address;
+  } catch (e) {
+    console.error(`\n  ERROR: Invalid MINTER_ADDRESS: ${process.env.MINTER_ADDRESS}`);
+    console.error("  Must be a valid EIP-55 checksummed Ethereum address.\n");
+    process.exit(1);
+  }
+
+  // Warn about role separation on mainnet
+  if (network === "base-mainnet" && admin === minter) {
+    console.log("\n  WARNING: ADMIN_ADDRESS and MINTER_ADDRESS are the same.");
+    console.log("  Consider using separate addresses for role separation.\n");
+  }
 
   console.log("═══════════════════════════════════════════");
   console.log("  SaThuCoin Deployment");

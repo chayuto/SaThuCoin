@@ -50,6 +50,9 @@ contract SaThuCoin is ERC20, ERC20Capped, ERC20Pausable, ERC20Burnable, ERC20Per
     /// @notice Thrown when attempting to renounce DEFAULT_ADMIN_ROLE.
     error AdminRenounceDisabled();
 
+    /// @notice Thrown when a zero address is passed where a valid address is required.
+    error ZeroAddressNotAllowed();
+
     /// @notice Emitted when tokens are minted for a verified good deed.
     /// @param recipient The wallet that receives the SATHU tokens.
     /// @param amount The number of tokens minted (in wei, 18 decimals).
@@ -68,6 +71,8 @@ contract SaThuCoin is ERC20, ERC20Capped, ERC20Pausable, ERC20Burnable, ERC20Per
         ERC20Capped(1_000_000_000 * 10 ** 18)
         ERC20Permit("SaThuCoin")
     {
+        if (admin == address(0)) revert ZeroAddressNotAllowed();
+        if (minter == address(0)) revert ZeroAddressNotAllowed();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(MINTER_ROLE, minter);
         _grantRole(PAUSER_ROLE, admin);
@@ -109,6 +114,12 @@ contract SaThuCoin is ERC20, ERC20Capped, ERC20Pausable, ERC20Burnable, ERC20Per
     /// @notice Unpause all token transfers and minting. Only callable by PAUSER_ROLE.
     function unpause() external onlyRole(PAUSER_ROLE) {
         _unpause();
+    }
+
+    /// @notice Returns the total tokens minted so far today (UTC day boundary).
+    /// @return minted The number of tokens minted today (in wei, 18 decimals).
+    function dailyMintedToday() external view returns (uint256 minted) {
+        return _dailyMinted[block.timestamp / 1 days];
     }
 
     /// @dev Prevents renouncing DEFAULT_ADMIN_ROLE to avoid irrecoverable loss of admin.
