@@ -71,7 +71,7 @@ npm run deploy:mainnet   # runs: npx hardhat run scripts/deploy.js --network bas
 ├── .gitignore             # Ignores node_modules, artifacts, cache, .env, data/*.json
 ├── README.md              # Quick start guide
 ├── PROJECT_PLAN.md        # Detailed project plan and architecture
-├── AGENT_PHASE1_INSTRUCTION.md   # Phase 1 bootstrap instructions (historical)
+├── 202602081631_AGENT_PHASE1_INSTRUCTION.md   # Phase 1 bootstrap instructions (historical)
 └── SATHUCOIN_AI_CODING_GUIDE.md  # Detailed coding patterns reference
 ```
 

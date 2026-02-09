@@ -112,6 +112,29 @@ describe("SaThuCoin", function () {
       // IAccessControl interface ID
       expect(await token.supportsInterface("0x7965db0b")).to.equal(true);
     });
+
+    it("should revert when admin is zero address", async function () {
+      const [, minter] = await ethers.getSigners();
+      const SaThuCoin = await ethers.getContractFactory("SaThuCoin");
+      await expect(
+        SaThuCoin.deploy(ethers.ZeroAddress, minter.address)
+      ).to.be.revertedWithCustomError(SaThuCoin, "ZeroAddressNotAllowed");
+    });
+
+    it("should revert when minter is zero address", async function () {
+      const [admin] = await ethers.getSigners();
+      const SaThuCoin = await ethers.getContractFactory("SaThuCoin");
+      await expect(
+        SaThuCoin.deploy(admin.address, ethers.ZeroAddress)
+      ).to.be.revertedWithCustomError(SaThuCoin, "ZeroAddressNotAllowed");
+    });
+
+    it("should revert when both admin and minter are zero address", async function () {
+      const SaThuCoin = await ethers.getContractFactory("SaThuCoin");
+      await expect(
+        SaThuCoin.deploy(ethers.ZeroAddress, ethers.ZeroAddress)
+      ).to.be.revertedWithCustomError(SaThuCoin, "ZeroAddressNotAllowed");
+    });
   });
 
   // ──────────────────────────────────────────
@@ -394,6 +417,39 @@ describe("SaThuCoin", function () {
 
       const remaining = SUPPLY_CAP - await token.totalSupply();
       expect(remaining).to.equal(SUPPLY_CAP - ethers.parseEther("5000"));
+    });
+
+    it("should allow reminting after burn (burned tokens free cap space)", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      const contractAddress = await token.getAddress();
+
+      // Set totalSupply near cap via storage manipulation
+      const nearCap = SUPPLY_CAP - ethers.parseEther("100");
+      const slot = ethers.toBeHex(2, 32);
+      const value = ethers.zeroPadValue(ethers.toBeHex(nearCap), 32);
+      await network.provider.send("hardhat_setStorageAt", [contractAddress, slot, value]);
+
+      // Also give alice those tokens so she can burn them
+      const aliceBalSlot = ethers.keccak256(
+        ethers.AbiCoder.defaultAbiCoder().encode(["address", "uint256"], [alice.address, 0])
+      );
+      await network.provider.send("hardhat_setStorageAt", [contractAddress, aliceBalSlot, value]);
+
+      // Mint exactly 100 to reach cap
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      expect(await token.totalSupply()).to.equal(SUPPLY_CAP);
+
+      // Cannot mint more
+      await expect(
+        token.connect(minter).mint(alice.address, 1n)
+      ).to.be.revertedWithCustomError(token, "ERC20ExceededCap");
+
+      // Burn 50 tokens
+      await token.connect(alice).burn(ethers.parseEther("50"));
+
+      // Now can mint again (up to 50)
+      await token.connect(minter).mint(alice.address, ethers.parseEther("50"));
+      expect(await token.totalSupply()).to.equal(SUPPLY_CAP);
     });
   });
 
@@ -770,6 +826,19 @@ describe("SaThuCoin", function () {
       expect(await token.balanceOf(bob.address)).to.equal(ethers.parseEther("100"));
     });
 
+    it("should allow admin to self-revoke DEFAULT_ADMIN_ROLE via revokeRole", async function () {
+      const { token, admin, alice } = await loadFixture(deployFixture);
+
+      // First grant alice admin so contract isn't left adminless
+      await token.connect(admin).grantRole(DEFAULT_ADMIN_ROLE, alice.address);
+
+      // Admin revokes own admin role
+      await token.connect(admin).revokeRole(DEFAULT_ADMIN_ROLE, admin.address);
+
+      expect(await token.hasRole(DEFAULT_ADMIN_ROLE, admin.address)).to.equal(false);
+      expect(await token.hasRole(DEFAULT_ADMIN_ROLE, alice.address)).to.equal(true);
+    });
+
     it("should allow key rotation — grant new minter, revoke old minter", async function () {
       const { token, admin, minter, alice, bob } = await loadFixture(deployFixture);
 
@@ -931,6 +1000,17 @@ describe("SaThuCoin", function () {
       ).to.be.revertedWithCustomError(token, "ERC20InsufficientAllowance");
     });
 
+    it("should revert burnFrom when paused", async function () {
+      const { token, admin, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      await token.connect(alice).approve(bob.address, ethers.parseEther("50"));
+      await token.connect(admin).pause();
+
+      await expect(
+        token.connect(bob).burnFrom(alice.address, ethers.parseEther("30"))
+      ).to.be.revertedWithCustomError(token, "EnforcedPause");
+    });
+
     it("should revert burn when paused", async function () {
       const { token, admin, minter, alice } = await loadFixture(deployFixture);
       await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
@@ -1067,6 +1147,71 @@ describe("SaThuCoin", function () {
 
       // Minting zero should still succeed
       await token.connect(minter).mint(alice.address, 0n);
+    });
+
+    it("should return 0 for dailyMintedToday initially", async function () {
+      const { token } = await loadFixture(deployFixture);
+      expect(await token.dailyMintedToday()).to.equal(0n);
+    });
+
+    it("should track dailyMintedToday after minting", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      const amount = ethers.parseEther("1000");
+      await token.connect(minter).mint(alice.address, amount);
+      expect(await token.dailyMintedToday()).to.equal(amount);
+    });
+
+    it("should reset dailyMintedToday after day boundary", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("1000"));
+      await time.increase(ONE_DAY);
+      expect(await token.dailyMintedToday()).to.equal(0n);
+    });
+
+    it("should enforce daily limit across multiple minters", async function () {
+      const { token, admin, minter, alice, bob } = await loadFixture(deployFixture);
+
+      // Grant alice MINTER_ROLE
+      await token.connect(admin).grantRole(MINTER_ROLE, alice.address);
+
+      // First minter uses most of the daily limit
+      for (let i = 0; i < 49; i++) {
+        await token.connect(minter).mint(bob.address, MAX_MINT_PER_TX);
+      }
+
+      // Second minter uses one more slot
+      await token.connect(alice).mint(bob.address, MAX_MINT_PER_TX);
+
+      // Both minters should now be blocked
+      await expect(
+        token.connect(minter).mint(bob.address, 1n)
+      ).to.be.revertedWithCustomError(token, "DailyMintCapExceeded");
+
+      await expect(
+        token.connect(alice).mint(bob.address, 1n)
+      ).to.be.revertedWithCustomError(token, "DailyMintCapExceeded");
+    });
+
+    it("should include correct args in DailyMintCapExceeded error", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      // Mint to daily limit
+      for (let i = 0; i < 50; i++) {
+        await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
+      }
+
+      // Get the current day key
+      const latestBlock = await ethers.provider.getBlock("latest");
+      const dayKey = BigInt(latestBlock.timestamp) / BigInt(ONE_DAY);
+
+      // Attempt to mint 1 more wei — should get exact error args
+      const attemptAmount = 1n;
+      const expectedTotal = MAX_DAILY_MINT + attemptAmount;
+
+      await expect(
+        token.connect(minter).mint(alice.address, attemptAmount)
+      ).to.be.revertedWithCustomError(token, "DailyMintCapExceeded")
+        .withArgs(dayKey, expectedTotal, MAX_DAILY_MINT);
     });
 
     it("should enforce daily limit independently from per-tx limit", async function () {
@@ -1234,6 +1379,25 @@ describe("SaThuCoin", function () {
     it("should return zero nonce for new account", async function () {
       const { token, alice } = await loadFixture(deployFixture);
       expect(await token.nonces(alice.address)).to.equal(0n);
+    });
+
+    it("should allow permit when paused (approvals don't trigger _update)", async function () {
+      const { token, admin, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      await token.connect(admin).pause();
+
+      const value = ethers.parseEther("50");
+      const deadline = (await time.latest()) + 3600;
+      const { v, r, s } = await signPermit(token, alice, bob, value, deadline);
+
+      // Permit should succeed even when paused (it only sets allowance)
+      await token.permit(alice.address, bob.address, value, deadline, v, r, s);
+      expect(await token.allowance(alice.address, bob.address)).to.equal(value);
+
+      // But transferFrom should still fail when paused
+      await expect(
+        token.connect(bob).transferFrom(alice.address, bob.address, ethers.parseEther("10"))
+      ).to.be.revertedWithCustomError(token, "EnforcedPause");
     });
   });
 });

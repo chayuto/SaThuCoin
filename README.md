@@ -2,12 +2,22 @@
 
 ![SaThuCoin Banner](assets/images/sathu_banner.png)
 
-A fictional ERC-20 token on Base chain that rewards charitable donors. Every SATHU in existence represents a verified donation someone made to a public cause.
+An ERC-20 token on Base (Ethereum L2) that rewards charitable donors. Every SATHU represents a verified donation.
 
 <p align="center">
   <img src="assets/images/sathu_coin.png" width="45%" alt="SaThuCoin Token">
   <img src="assets/images/sathu_mascot.png" width="45%" alt="SaThuCoin Mascot">
 </p>
+
+## Features
+
+- **Zero initial supply** — tokens are minted only for verified donations
+- **AccessControl** — separate admin (Safe multisig), minter (bot), and pauser roles
+- **Supply cap** — 1 billion SATHU maximum
+- **Daily mint limit** — 500,000 SATHU/day, 10,000 SATHU/tx
+- **Pausable** — emergency stop for all transfers and minting
+- **ERC20Permit** — gasless approvals (EIP-2612)
+- **Burnable** — token holders can burn their own tokens
 
 ## Quick Start
 
@@ -44,13 +54,24 @@ data/            — Runtime data (gitignored)
 docs/            — Documentation
 ```
 
+## Documentation
+
+- [Deployment Runbook](docs/DEPLOYMENT_RUNBOOK.md) — step-by-step deploy guide
+- [Pre-deployment Checklist](docs/PREDEPLOYMENT_CHECKLIST.md) — what to set up before mainnet
+- [Deployment Setup](docs/DEPLOYMENT_SETUP.md) — architecture and configuration reference
+- [Incident Response](docs/INCIDENT_RESPONSE.md) — emergency playbooks
+
 ## Environment Setup
 
-Copy `.env.example` to `.env` and fill in your values:
+Copy `.env.example` to `.env` and fill in your values. See the [Pre-deployment Checklist](docs/PREDEPLOYMENT_CHECKLIST.md) for details on each variable.
 
 ```bash
 cp .env.example .env
 ```
+
+## Tech Stack
+
+Solidity 0.8.26 | OpenZeppelin v5.4 | Hardhat 2 | ethers.js v6 | Base (Coinbase L2)
 
 ## License
 
