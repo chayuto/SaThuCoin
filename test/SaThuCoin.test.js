@@ -1,4 +1,4 @@
-const { loadFixture } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
+const { loadFixture, time } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { expect } = require("chai");
 const { ethers, network } = require("hardhat");
 
@@ -11,7 +11,9 @@ describe("SaThuCoin", function () {
 
   // Constants matching the contract
   const MAX_MINT_PER_TX = ethers.parseEther("10000");
+  const MAX_DAILY_MINT = ethers.parseEther("500000");
   const SUPPLY_CAP = ethers.parseEther("1000000000"); // 1 billion
+  const ONE_DAY = 86400; // seconds in a day
 
   // Fixture: deploys a fresh contract for each test
   // admin = owner (gets DEFAULT_ADMIN_ROLE + PAUSER_ROLE)
@@ -745,7 +747,7 @@ describe("SaThuCoin", function () {
 
       await expect(
         token.connect(admin).renounceRole(DEFAULT_ADMIN_ROLE, admin.address)
-      ).to.be.revertedWith("Renounce admin disabled");
+      ).to.be.revertedWithCustomError(token, "AdminRenounceDisabled");
     });
 
     it("should revert renounceRole with wrong callerConfirmation", async function () {
@@ -815,6 +817,423 @@ describe("SaThuCoin", function () {
 
       expect(await token.balanceOf(alice.address)).to.equal(MAX_MINT_PER_TX);
       expect(await token.totalSupply()).to.equal(MAX_MINT_PER_TX);
+    });
+  });
+
+  // ──────────────────────────────────────────
+  // ERC165 — supportsInterface
+  // ──────────────────────────────────────────
+
+  describe("ERC165 — supportsInterface", function () {
+
+    it("should support IERC165 interface", async function () {
+      const { token } = await loadFixture(deployFixture);
+      expect(await token.supportsInterface("0x01ffc9a7")).to.equal(true);
+    });
+
+    it("should support IAccessControl interface", async function () {
+      const { token } = await loadFixture(deployFixture);
+      expect(await token.supportsInterface("0x7965db0b")).to.equal(true);
+    });
+
+    it("should support IERC20 interface", async function () {
+      const { token } = await loadFixture(deployFixture);
+      // IERC20 interface ID = 0x36372b07
+      expect(await token.supportsInterface("0x36372b07")).to.equal(true);
+    });
+
+    it("should support IERC20Permit interface", async function () {
+      const { token } = await loadFixture(deployFixture);
+      // Compute: XOR of permit, nonces, DOMAIN_SEPARATOR selectors
+      const permitSel = ethers.id(
+        "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)"
+      ).substring(0, 10);
+      const noncesSel = ethers.id("nonces(address)").substring(0, 10);
+      const domainSel = ethers.id("DOMAIN_SEPARATOR()").substring(0, 10);
+
+      const xor = BigInt(permitSel) ^ BigInt(noncesSel) ^ BigInt(domainSel);
+      const interfaceId = "0x" + (xor & 0xffffffffn).toString(16).padStart(8, "0");
+
+      expect(await token.supportsInterface(interfaceId)).to.equal(true);
+    });
+
+    it("should not support invalid interface ID 0xffffffff", async function () {
+      const { token } = await loadFixture(deployFixture);
+      expect(await token.supportsInterface("0xffffffff")).to.equal(false);
+    });
+
+    it("should not support random interface ID", async function () {
+      const { token } = await loadFixture(deployFixture);
+      expect(await token.supportsInterface("0x12345678")).to.equal(false);
+    });
+  });
+
+  // ──────────────────────────────────────────
+  // BURNING (ERC20Burnable)
+  // ──────────────────────────────────────────
+
+  describe("Burning (ERC20Burnable)", function () {
+
+    it("should allow token holder to burn own tokens", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      await token.connect(alice).burn(ethers.parseEther("30"));
+
+      expect(await token.balanceOf(alice.address)).to.equal(ethers.parseEther("70"));
+    });
+
+    it("should reduce total supply on burn", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      await token.connect(alice).burn(ethers.parseEther("40"));
+
+      expect(await token.totalSupply()).to.equal(ethers.parseEther("60"));
+    });
+
+    it("should emit Transfer event to zero address on burn", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      await expect(token.connect(alice).burn(ethers.parseEther("50")))
+        .to.emit(token, "Transfer")
+        .withArgs(alice.address, ethers.ZeroAddress, ethers.parseEther("50"));
+    });
+
+    it("should revert burn when exceeding balance", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      await expect(
+        token.connect(alice).burn(ethers.parseEther("200"))
+      ).to.be.revertedWithCustomError(token, "ERC20InsufficientBalance");
+    });
+
+    it("should allow burnFrom with allowance", async function () {
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      await token.connect(alice).approve(bob.address, ethers.parseEther("50"));
+
+      await token.connect(bob).burnFrom(alice.address, ethers.parseEther("30"));
+
+      expect(await token.balanceOf(alice.address)).to.equal(ethers.parseEther("70"));
+      expect(await token.allowance(alice.address, bob.address)).to.equal(ethers.parseEther("20"));
+    });
+
+    it("should revert burnFrom without sufficient allowance", async function () {
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      await token.connect(alice).approve(bob.address, ethers.parseEther("10"));
+
+      await expect(
+        token.connect(bob).burnFrom(alice.address, ethers.parseEther("50"))
+      ).to.be.revertedWithCustomError(token, "ERC20InsufficientAllowance");
+    });
+
+    it("should revert burn when paused", async function () {
+      const { token, admin, minter, alice } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      await token.connect(admin).pause();
+
+      await expect(
+        token.connect(alice).burn(ethers.parseEther("50"))
+      ).to.be.revertedWithCustomError(token, "EnforcedPause");
+    });
+
+    it("should allow burn after unpause", async function () {
+      const { token, admin, minter, alice } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+      await token.connect(admin).pause();
+      await token.connect(admin).unpause();
+
+      await token.connect(alice).burn(ethers.parseEther("50"));
+
+      expect(await token.balanceOf(alice.address)).to.equal(ethers.parseEther("50"));
+    });
+
+    it("should allow burning zero tokens (no-op)", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      await token.connect(alice).burn(0n);
+
+      expect(await token.balanceOf(alice.address)).to.equal(ethers.parseEther("100"));
+    });
+
+    it("should allow burning entire balance", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+      const amount = ethers.parseEther("100");
+      await token.connect(minter).mint(alice.address, amount);
+
+      await token.connect(alice).burn(amount);
+
+      expect(await token.balanceOf(alice.address)).to.equal(0n);
+      expect(await token.totalSupply()).to.equal(0n);
+    });
+  });
+
+  // ──────────────────────────────────────────
+  // DAILY MINT LIMIT
+  // ──────────────────────────────────────────
+
+  describe("Daily mint limit", function () {
+
+    it("should have correct MAX_DAILY_MINT constant", async function () {
+      const { token } = await loadFixture(deployFixture);
+      expect(await token.MAX_DAILY_MINT()).to.equal(MAX_DAILY_MINT);
+    });
+
+    it("should allow minting up to daily limit", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      // Mint 50 times at MAX_MINT_PER_TX (10,000 each) = 500,000 = MAX_DAILY_MINT
+      for (let i = 0; i < 50; i++) {
+        await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
+      }
+
+      expect(await token.totalSupply()).to.equal(MAX_DAILY_MINT);
+    });
+
+    it("should revert when exceeding daily limit via mint()", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      // Mint to daily limit
+      for (let i = 0; i < 50; i++) {
+        await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
+      }
+
+      // One more wei should fail
+      await expect(
+        token.connect(minter).mint(alice.address, 1n)
+      ).to.be.revertedWithCustomError(token, "DailyMintCapExceeded");
+    });
+
+    it("should revert when exceeding daily limit via mintForDeed()", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      // Mint to daily limit
+      for (let i = 0; i < 50; i++) {
+        await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
+      }
+
+      // mintForDeed should also fail
+      await expect(
+        token.connect(minter).mintForDeed(alice.address, 1n, "Over limit")
+      ).to.be.revertedWithCustomError(token, "DailyMintCapExceeded");
+    });
+
+    it("should reset daily limit after one day", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      // Mint to daily limit
+      for (let i = 0; i < 50; i++) {
+        await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
+      }
+
+      // Advance time by one day
+      await time.increase(ONE_DAY);
+
+      // Should be able to mint again
+      await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
+
+      expect(await token.totalSupply()).to.equal(MAX_DAILY_MINT + MAX_MINT_PER_TX);
+    });
+
+    it("should track daily limit across mint() and mintForDeed()", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      // Mint 25 via mint() + 25 via mintForDeed() = 50 * 10,000 = 500,000
+      for (let i = 0; i < 25; i++) {
+        await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
+      }
+      for (let i = 0; i < 25; i++) {
+        await token.connect(minter).mintForDeed(alice.address, MAX_MINT_PER_TX, `Deed ${i}`);
+      }
+
+      // Should be at limit
+      await expect(
+        token.connect(minter).mint(alice.address, 1n)
+      ).to.be.revertedWithCustomError(token, "DailyMintCapExceeded");
+    });
+
+    it("should allow minting zero tokens without affecting daily limit", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      // Mint to daily limit
+      for (let i = 0; i < 50; i++) {
+        await token.connect(minter).mint(alice.address, MAX_MINT_PER_TX);
+      }
+
+      // Minting zero should still succeed
+      await token.connect(minter).mint(alice.address, 0n);
+    });
+
+    it("should enforce daily limit independently from per-tx limit", async function () {
+      const { token, minter, alice } = await loadFixture(deployFixture);
+
+      // Mint a large amount that's under per-tx limit but would exceed daily over time
+      const bigMint = ethers.parseEther("9000"); // under 10,000 per-tx limit
+      // 500,000 / 9,000 = 55.55, so 55 mints should work, 56th should fail
+      for (let i = 0; i < 55; i++) {
+        await token.connect(minter).mint(alice.address, bigMint);
+      }
+
+      // 55 * 9,000 = 495,000. Remaining = 5,000 SATHU
+      const remaining = MAX_DAILY_MINT - ethers.parseEther("495000");
+      expect(remaining).to.equal(ethers.parseEther("5000"));
+
+      // Minting 5,001 should fail (exceeds daily)
+      await expect(
+        token.connect(minter).mint(alice.address, ethers.parseEther("5001"))
+      ).to.be.revertedWithCustomError(token, "DailyMintCapExceeded");
+
+      // Minting exactly 5,000 should succeed
+      await token.connect(minter).mint(alice.address, ethers.parseEther("5000"));
+    });
+  });
+
+  // ──────────────────────────────────────────
+  // ERC20 PERMIT (EIP-2612)
+  // ──────────────────────────────────────────
+
+  describe("ERC20Permit (EIP-2612)", function () {
+
+    // Helper to build domain, types, and sign a permit
+    async function signPermit(token, owner, spender, value, deadline) {
+      const tokenAddress = await token.getAddress();
+      const nonce = await token.nonces(owner.address);
+      const chainId = (await ethers.provider.getNetwork()).chainId;
+
+      const domain = {
+        name: "SaThuCoin",
+        version: "1",
+        chainId: chainId,
+        verifyingContract: tokenAddress,
+      };
+
+      const types = {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      };
+
+      const message = {
+        owner: owner.address,
+        spender: spender.address,
+        value: value,
+        nonce: nonce,
+        deadline: deadline,
+      };
+
+      const sig = await owner.signTypedData(domain, types, message);
+      return ethers.Signature.from(sig);
+    }
+
+    it("should allow gasless approval via permit", async function () {
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      const value = ethers.parseEther("50");
+      const deadline = (await time.latest()) + 3600;
+
+      const { v, r, s } = await signPermit(token, alice, bob, value, deadline);
+
+      await token.permit(alice.address, bob.address, value, deadline, v, r, s);
+
+      expect(await token.allowance(alice.address, bob.address)).to.equal(value);
+    });
+
+    it("should increment nonce after permit", async function () {
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      expect(await token.nonces(alice.address)).to.equal(0n);
+
+      const value = ethers.parseEther("50");
+      const deadline = (await time.latest()) + 3600;
+      const { v, r, s } = await signPermit(token, alice, bob, value, deadline);
+
+      await token.permit(alice.address, bob.address, value, deadline, v, r, s);
+
+      expect(await token.nonces(alice.address)).to.equal(1n);
+    });
+
+    it("should revert with expired deadline", async function () {
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      const value = ethers.parseEther("50");
+      const deadline = (await time.latest()) - 1; // already expired
+
+      const { v, r, s } = await signPermit(token, alice, bob, value, deadline);
+
+      await expect(
+        token.permit(alice.address, bob.address, value, deadline, v, r, s)
+      ).to.be.revertedWithCustomError(token, "ERC2612ExpiredSignature");
+    });
+
+    it("should revert with wrong signer", async function () {
+      const { token, minter, alice, bob, charlie } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      const value = ethers.parseEther("50");
+      const deadline = (await time.latest()) + 3600;
+
+      // Charlie signs, but we claim alice is the owner
+      const { v, r, s } = await signPermit(token, charlie, bob, value, deadline);
+
+      await expect(
+        token.permit(alice.address, bob.address, value, deadline, v, r, s)
+      ).to.be.revertedWithCustomError(token, "ERC2612InvalidSigner");
+    });
+
+    it("should revert on replay (same signature used twice)", async function () {
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      const value = ethers.parseEther("50");
+      const deadline = (await time.latest()) + 3600;
+      const { v, r, s } = await signPermit(token, alice, bob, value, deadline);
+
+      // First use succeeds
+      await token.permit(alice.address, bob.address, value, deadline, v, r, s);
+
+      // Second use fails (nonce already consumed)
+      await expect(
+        token.permit(alice.address, bob.address, value, deadline, v, r, s)
+      ).to.be.revertedWithCustomError(token, "ERC2612InvalidSigner");
+    });
+
+    it("should allow transferFrom after permit", async function () {
+      const { token, minter, alice, bob } = await loadFixture(deployFixture);
+      await token.connect(minter).mint(alice.address, ethers.parseEther("100"));
+
+      const value = ethers.parseEther("50");
+      const deadline = (await time.latest()) + 3600;
+      const { v, r, s } = await signPermit(token, alice, bob, value, deadline);
+
+      await token.permit(alice.address, bob.address, value, deadline, v, r, s);
+      await token.connect(bob).transferFrom(alice.address, bob.address, ethers.parseEther("30"));
+
+      expect(await token.balanceOf(bob.address)).to.equal(ethers.parseEther("30"));
+      expect(await token.balanceOf(alice.address)).to.equal(ethers.parseEther("70"));
+    });
+
+    it("should return correct DOMAIN_SEPARATOR", async function () {
+      const { token } = await loadFixture(deployFixture);
+
+      const domainSeparator = await token.DOMAIN_SEPARATOR();
+      expect(domainSeparator).to.not.equal(ethers.ZeroHash);
+    });
+
+    it("should return zero nonce for new account", async function () {
+      const { token, alice } = await loadFixture(deployFixture);
+      expect(await token.nonces(alice.address)).to.equal(0n);
     });
   });
 });
