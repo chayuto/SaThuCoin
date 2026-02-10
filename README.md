@@ -4,6 +4,9 @@
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.26-363636?logo=solidity)](https://soliditylang.org/)
 [![Base](https://img.shields.io/badge/Base-Mainnet-0052FF?logo=coinbase)](https://basescan.org/address/0x974FCaC6add872B946917eD932581CA9f7188AbD)
 [![OpenZeppelin](https://img.shields.io/badge/OpenZeppelin-v5.4-4E5EE4?logo=openzeppelin)](https://www.openzeppelin.com/contracts)
+[![Verified](https://img.shields.io/badge/BaseScan-Verified-00C853?logo=ethereum)](https://basescan.org/address/0x974FCaC6add872B946917eD932581CA9f7188AbD#code)
+[![ERC-20](https://img.shields.io/badge/ERC--20-Token-3C3C3D?logo=ethereum)](https://basescan.org/token/0x974FCaC6add872B946917eD932581CA9f7188AbD)
+[![Chain](https://img.shields.io/badge/Chain_ID-8453-0052FF)](https://chainlist.org/chain/8453)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ![SaThuCoin Banner](assets/images/sathu_banner.png)
