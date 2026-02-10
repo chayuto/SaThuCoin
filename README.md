@@ -4,6 +4,8 @@
 
 An ERC-20 token on Base (Ethereum L2) that rewards charitable donors. Every SATHU represents a verified donation.
 
+**Mainnet:** [`0x974FCaC6add872B946917eD932581CA9f7188AbD`](https://basescan.org/address/0x974FCaC6add872B946917eD932581CA9f7188AbD#code)
+
 <p align="center">
   <img src="assets/images/sathu_coin.png" width="45%" alt="SaThuCoin Token">
   <img src="assets/images/sathu_mascot.png" width="45%" alt="SaThuCoin Mascot">
@@ -56,9 +58,6 @@ docs/            — Documentation
 
 ## Documentation
 
-- [Deployment Runbook](docs/DEPLOYMENT_RUNBOOK.md) — step-by-step deploy guide
-- [Pre-deployment Checklist](docs/PREDEPLOYMENT_CHECKLIST.md) — what to set up before mainnet
-- [Deployment Setup](docs/DEPLOYMENT_SETUP.md) — architecture and configuration reference
 - [Incident Response](docs/INCIDENT_RESPONSE.md) — emergency playbooks
 
 ## Environment Setup
