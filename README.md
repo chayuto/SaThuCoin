@@ -1,5 +1,11 @@
 # SaThuCoin (SATHU)
 
+[![CI](https://github.com/chayuto/SaThuCoin/actions/workflows/ci.yml/badge.svg)](https://github.com/chayuto/SaThuCoin/actions)
+[![Solidity](https://img.shields.io/badge/Solidity-0.8.26-363636?logo=solidity)](https://soliditylang.org/)
+[![Base](https://img.shields.io/badge/Base-Mainnet-0052FF?logo=coinbase)](https://basescan.org/address/0x974FCaC6add872B946917eD932581CA9f7188AbD)
+[![OpenZeppelin](https://img.shields.io/badge/OpenZeppelin-v5.4-4E5EE4?logo=openzeppelin)](https://www.openzeppelin.com/contracts)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ![SaThuCoin Banner](assets/images/sathu_banner.png)
 
 An ERC-20 token on Base (Ethereum L2) that rewards charitable donors. Every SATHU represents a verified donation.
