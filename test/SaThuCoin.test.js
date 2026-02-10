@@ -240,7 +240,7 @@ describe("SaThuCoin", function () {
     it("should mint tokens and emit DeedRewarded event", async function () {
       const { token, minter, alice } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("50");
-      const deed = "Charity Alpha Foundation";
+      const deed = "Itipiso bagava arahan samma sambudho wijja charana sampanno sugatho lokavidu anutharo purisa dhamma sarathi satt tha deva manusanam budhho bagavathi";
 
       await expect(token.connect(minter).mintForDeed(alice.address, amount, deed))
         .to.emit(token, "DeedRewarded")
@@ -277,10 +277,10 @@ describe("SaThuCoin", function () {
         .withArgs(alice.address, amount, longDeed);
     });
 
-    it("should handle unicode deed string", async function () {
+    it("should handle Pali deed string", async function () {
       const { token, minter, alice } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("10");
-      const deed = "Donated to charity";
+      const deed = "Itipiso bagava arahan samma sambudho wijja charana sampanno sugatho lokavidu anutharo purisa dhamma sarathi satt tha deva manusanam budhho bagavathi";
 
       await expect(token.connect(minter).mintForDeed(alice.address, amount, deed))
         .to.emit(token, "DeedRewarded")
