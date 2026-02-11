@@ -22,9 +22,13 @@ npm install             # install dependencies
 npm run compile         # compile Solidity contracts
 npm test                # run all tests (must compile first)
 npm run test:gas        # run tests with gas reporting
+npm run clean           # clean build artifacts
+```
+
+**Human-only commands (agent must NEVER execute):**
+```bash
 npm run deploy:testnet  # deploy to Base Sepolia (requires .env)
 npm run deploy:mainnet  # deploy to Base Mainnet (requires .env)
-npm run clean           # clean build artifacts
 ```
 
 **Required sequence:** `npm install` → `npm run compile` → `npm test`
@@ -65,6 +69,7 @@ Review the comprehensive security analysis before working on security-critical c
 @docs/SaThuCoin comprehensive security deep dive.md
 
 Key security principles for this project:
+- **AGENT MUST NEVER interact with mainnet or testnet programmatically** — all deploy, verify, and on-chain commands are human-executed only
 - AI agents must NEVER access or handle private keys
 - All AI-generated code is untrusted — human review required for security-critical paths
 - npm dependencies must use exact version pinning, not `^` or `~`

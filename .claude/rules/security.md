@@ -39,6 +39,16 @@
 - Watch for "slopsquatting" — AI hallucinating non-existent package names
 - Never blindly trust AI-suggested imports or dependencies
 
+## Agent Deployment Boundary (MANDATORY)
+- **AGENT MUST NEVER interact with mainnet or testnet programmatically**
+- NEVER run deploy scripts (`npm run deploy:*`, `npx hardhat run scripts/deploy*`)
+- NEVER run verify scripts (`npx hardhat run scripts/verify*`)
+- NEVER execute any command targeting a live network (`--network base-mainnet`, `--network base-sepolia`)
+- NEVER send transactions, call contracts, or query live chain state via scripts
+- All deployment, verification, and on-chain operations are **human-executed only**
+- The agent MAY write/edit deploy scripts, but MUST NOT execute them
+- The agent MAY compile contracts and run local Hardhat tests (these use in-memory chains only)
+
 ## Operational Security
 - Use separate wallets for project and personal use
 - Use hardware wallets for signing deployment transactions

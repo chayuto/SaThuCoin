@@ -25,7 +25,12 @@
       "Edit(./.env.*)",
       "Bash(rm -rf *)",
       "Bash(git push --force *)",
-      "Bash(git reset --hard *)"
+      "Bash(git reset --hard *)",
+      "Bash(npm run deploy:*)",
+      "Bash(npx hardhat run scripts/deploy*)",
+      "Bash(npx hardhat run scripts/verify*)",
+      "Bash(*--network base-mainnet*)",
+      "Bash(*--network base-sepolia*)"
     ]
   },
   "hooks": {
