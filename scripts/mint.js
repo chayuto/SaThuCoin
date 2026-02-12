@@ -2,16 +2,49 @@
 // Usage:
 //   npx hardhat mint --to 0xABC... --amount 10 --network base-sepolia
 //   npx hardhat mint --to 0xABC... --amount 10 --deed "Donated to Red Cross" --network base-sepolia
+//   npx hardhat mint --to 0xABC... --amount 1boon --deed "First boon" --network base-sepolia
+//   npx hardhat mint --to 0xABC... --amount 500boon --deed-file deed.txt --network base-mainnet
 //   npx hardhat mint --to 0xABC... --amount 10 --dry-run --network base-sepolia
 
 const { task } = require("hardhat/config");
 const fs = require("fs");
 const path = require("path");
 
+/**
+ * Parse the --amount argument.
+ * Supports: "10" (SATHU), "0.5" (SATHU), "1boon" (raw units), "500boon" (raw units)
+ * @param {string} raw
+ * @param {object} ethers - hardhat ethers
+ * @returns {{ amount: bigint, display: string }}
+ */
+function parseAmount(raw, ethers) {
+  const trimmed = raw.trim().toLowerCase();
+
+  if (trimmed.endsWith("boon")) {
+    const num = trimmed.slice(0, -4);
+    if (!num || !/^\d+$/.test(num)) {
+      throw new Error(`Invalid boon amount: "${raw}" — must be a positive integer followed by "boon"`);
+    }
+    const amount = BigInt(num);
+    const sathu = ethers.formatEther(amount);
+    return { amount, display: `${num} boon (${sathu} SATHU)` };
+  }
+
+  // Treat as SATHU (human-readable, 18 decimals)
+  const amountFloat = parseFloat(trimmed);
+  if (isNaN(amountFloat) || amountFloat < 0) {
+    throw new Error(`Invalid amount: "${raw}" — must be a positive number or integer with "boon" suffix`);
+  }
+
+  const amount = ethers.parseEther(trimmed);
+  return { amount, display: `${trimmed} SATHU (${amount} boon)` };
+}
+
 task("mint", "Mint SATHU tokens to an address")
   .addParam("to", "Recipient address (EIP-55 checksummed)")
-  .addParam("amount", "Amount to mint in SATHU (e.g. 10 = 10 SATHU)")
-  .addOptionalParam("deed", "Short description of the deed (uses mintForDeed)")
+  .addParam("amount", "Amount to mint: SATHU (e.g. 10) or boon (e.g. 1boon, 500boon)")
+  .addOptionalParam("deed", "Description of the deed (uses mintForDeed)")
+  .addOptionalParam("deedFile", "Path to a text file containing the deed")
   .addFlag("dryRun", "Simulate without sending a transaction")
   .setAction(async (taskArgs, hre) => {
     const network = hre.network.name;
@@ -52,21 +85,39 @@ task("mint", "Mint SATHU tokens to an address")
       process.exit(1);
     }
 
-    // Validate amount
-    const amountFloat = parseFloat(taskArgs.amount);
-    if (isNaN(amountFloat) || amountFloat <= 0) {
-      console.error(`  Invalid amount: "${taskArgs.amount}". Must be a positive number.`);
+    // Parse amount (supports SATHU and boon)
+    let amount, amountDisplay;
+    try {
+      const parsed = parseAmount(taskArgs.amount, hre.ethers);
+      amount = parsed.amount;
+      amountDisplay = parsed.display;
+    } catch (e) {
+      console.error(`  ${e.message}`);
       process.exit(1);
     }
 
-    const amount = hre.ethers.parseEther(taskArgs.amount);
+    if (amount === 0n) {
+      console.error("  Amount must be greater than 0.");
+      process.exit(1);
+    }
+
     const maxPerTx = 10_000n * 10n ** 18n; // MAX_MINT_PER_TX
     if (amount > maxPerTx) {
-      console.error(`  Amount ${taskArgs.amount} SATHU exceeds MAX_MINT_PER_TX (10,000 SATHU).`);
+      console.error(`  Amount exceeds MAX_MINT_PER_TX (10,000 SATHU).`);
       process.exit(1);
     }
 
-    const deed = taskArgs.deed || null;
+    // Load deed from --deed or --deed-file
+    let deed = taskArgs.deed || null;
+    if (taskArgs.deedFile) {
+      const filePath = path.resolve(taskArgs.deedFile);
+      if (!fs.existsSync(filePath)) {
+        console.error(`  Deed file not found: ${filePath}`);
+        process.exit(1);
+      }
+      deed = fs.readFileSync(filePath, "utf-8").trim();
+    }
+
     const dryRun = taskArgs.dryRun;
 
     // Connect to contract
@@ -97,9 +148,10 @@ task("mint", "Mint SATHU tokens to an address")
     console.log(`  Contract:  ${deployment.contractAddress}`);
     console.log(`  Signer:    ${signer.address}`);
     console.log(`  Recipient: ${to}`);
-    console.log(`  Amount:    ${taskArgs.amount} SATHU`);
+    console.log(`  Amount:    ${amountDisplay}`);
     if (deed) {
-      console.log(`  Deed:      "${deed}"`);
+      const deedPreview = deed.length > 80 ? deed.slice(0, 77) + "..." : deed;
+      console.log(`  Deed:      "${deedPreview}"`);
       console.log(`  Function:  mintForDeed()`);
     } else {
       console.log(`  Function:  mint()`);

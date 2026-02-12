@@ -15,6 +15,21 @@ An ERC-20 token on Base (Ethereum L2) that rewards charitable donors. Every SATH
 
 **Mainnet:** [`0x974FCaC6add872B946917eD932581CA9f7188AbD`](https://basescan.org/address/0x974FCaC6add872B946917eD932581CA9f7188AbD#code)
 
+### Name & Culture
+
+"SaThuCoin" comes from **สาธุ** (*sa-thu*), a Thai and Buddhist expression of blessing and approval — often spoken after a prayer, a good deed, or an act of generosity. The token rewards donors inspired by the Buddhist tradition of **merit-making** (ทำบุญ, *tham boon*): the belief that acts of giving create positive karma.
+
+The smallest unit of SATHU is called a **boon** (Thai: บุญ), meaning *merit* or *good deed*. Every fraction of SATHU represents a fraction of good.
+
+### Denominations
+
+| Unit | Value |
+|------|-------|
+| 1 boon | 10⁻¹⁸ SATHU (smallest unit) |
+| 1 SATHU | 10¹⁸ boon |
+
+Standard ERC-20 with 18 decimals — `boon` is to SATHU what `wei` is to ETH.
+
 <p align="center">
   <img src="assets/images/sathu_coin.png" width="45%" alt="SaThuCoin Token">
   <img src="assets/images/sathu_mascot.png" width="45%" alt="SaThuCoin Mascot">
@@ -67,6 +82,8 @@ docs/            — Documentation
 
 ## Documentation
 
+- [How To Guide](docs/HOW_TO.md) — build, test, mint, validate addresses
+- [Donor Guide](docs/DONOR_GUIDE.md) — how to receive SATHU tokens
 - [Incident Response](docs/INCIDENT_RESPONSE.md) — emergency playbooks
 
 ## Environment Setup

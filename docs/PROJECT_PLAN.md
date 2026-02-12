@@ -35,12 +35,15 @@
 **Supply:** Uncapped — grows with every verified donation
 **Initial Supply:** 0 — all tokens are earned, never pre-minted
 **Minting Model:** Automated via scraper + manual override via CLI
+**Smallest Unit:** boon (1 SATHU = 10¹⁸ boon)
 **License:** MIT
 **Purpose:** Fictional, fun token. Not a financial instrument. No monetary value intended.
 
 ### Core Philosophy
 
 - Every SATHU in existence represents a real donation someone made to a public cause
+- The name "SaThuCoin" comes from สาธุ (*sa-thu*), a Thai and Buddhist expression of blessing spoken after acts of generosity
+- The smallest unit "boon" (บุญ) means *merit* — every fraction of SATHU represents a fraction of good
 - No manual submissions — the system finds donors automatically from public data
 - Fully transparent, open source, auditable
 - The total supply is a living counter of generosity

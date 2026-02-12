@@ -87,3 +87,4 @@ Key security principles for this project:
 - Tests use `loadFixture(deployFixture)` pattern for isolation
 - `.env` required for deployment only, not for compile/test
 - `data/` directory is created at runtime and gitignored
+- Smallest unit is "boon" (1 SATHU = 10¹⁸ boon, like wei to ETH)

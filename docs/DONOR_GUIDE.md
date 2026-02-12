@@ -6,7 +6,7 @@
 
 ## What is SaThuCoin?
 
-SaThuCoin (SATHU) is a digital token on the Base network that recognizes verified charitable donations. When your donation is confirmed, SATHU tokens are sent directly to your wallet as a permanent record of your generosity.
+SaThuCoin (SATHU) is a digital token on the Base network that recognizes verified charitable donations. The name comes from **สาธุ** (*sa-thu*), a Thai and Buddhist expression of blessing and approval, often spoken after an act of generosity. When your donation is confirmed, SATHU tokens are sent directly to your wallet as a permanent record of your generosity.
 
 ---
 
@@ -64,6 +64,9 @@ Yes. Any wallet that supports ERC-20 tokens on the Base network will work (Coinb
 
 **Is my wallet address the same as my Ethereum address?**
 Yes. Your address works on both Ethereum and Base. You do not need a separate address.
+
+**What is a boon?**
+A "boon" (Thai: บุญ, meaning *merit* or *good deed*) is the smallest unit of SATHU — like a wei is to ETH. 1 SATHU = 10¹⁸ boon. The name reflects the Buddhist tradition of merit-making through generosity.
 
 **What can I do with SATHU?**
 SATHU is a recognition token. It serves as a permanent, verifiable record of your donation on the blockchain. You can hold it, transfer it, or view it on the block explorer.
