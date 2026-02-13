@@ -35,15 +35,32 @@ Standard ERC-20 with 18 decimals — `boon` is to SATHU what `wei` is to ETH.
   <img src="assets/images/sathu_mascot.png" width="45%" alt="SaThuCoin Mascot">
 </p>
 
+## How It Works
+
+SaThuCoin implements a **deed/offering cycle** rooted in Buddhist practice:
+
+**Deed → Mint (ทำบุญ → ได้บุญ):** A verified donation triggers token minting. The deed description is permanently recorded on-chain via the `DeedRewarded` event — an immutable record of generosity. This mirrors **merit-making** (ทำบุญ, *tham boon*): giving creates merit.
+
+**Offering → Burn (ถวาย → ปล่อยวาง):** Token holders can voluntarily burn their tokens with an on-chain message — a prayer, dedication, or blessing — emitted as an `OfferingMade` event. This mirrors **making an offering** (ถวาย, *tha-wai*) and **letting go** (ปล่อยวาง, *ploi wang*): releasing merit as spiritual practice.
+
+The cycle is implemented across two contracts:
+
+| Contract | Role |
+|----------|------|
+| **SaThuCoin** | Core ERC-20 token with `mintForDeed()` — mints tokens and emits `DeedRewarded` |
+| **SaThuCompanion** | Enhanced minting with source/category tags (`mintForDeedTagged()`, `DeedRecorded`) and offering burns (`burnWithOffering()`, `OfferingMade`) |
+
 ## Features
 
 - **Zero initial supply** — tokens are minted only for verified donations
+- **Deed minting** — `mintForDeed()` records each donation on-chain; `mintForDeedTagged()` adds source and category metadata
+- **Offering burns** — `burnWithOffering()` lets holders burn tokens with an on-chain dedication or prayer
 - **AccessControl** — separate admin (Safe multisig), minter (bot), and pauser roles
 - **Supply cap** — 1 billion SATHU maximum
 - **Daily mint limit** — 500,000 SATHU/day, 10,000 SATHU/tx
 - **Pausable** — emergency stop for all transfers and minting
-- **ERC20Permit** — gasless approvals (EIP-2612)
-- **Burnable** — token holders can burn their own tokens
+- **ERC20Permit** — gasless approvals (EIP-2612) and gasless offering burns via `burnWithOfferingPermit()`
+- **Companion contract** — SaThuCompanion extends the core token with enhanced events and offering functionality
 
 ## Quick Start
 
@@ -70,8 +87,8 @@ npm run deploy:mainnet
 ## Project Structure
 
 ```
-contracts/       — Solidity smart contracts
-test/            — Contract tests
+contracts/       — SaThuCoin (core ERC-20) and SaThuCompanion (deed tags + offerings)
+test/            — Contract tests (SaThuCoin + SaThuCompanion)
 scripts/         — Deployment and verification scripts
 config/          — Source site and reward configuration
 scraper/         — Donor scraper engine (Phase 2)
